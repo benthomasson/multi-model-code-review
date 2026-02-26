@@ -1,6 +1,5 @@
 """Tests for aggregator module - disagreement detection and gate logic."""
 
-import pytest
 
 from multi_model_code_review import (
     ChangeVerdict,
@@ -16,9 +15,7 @@ from multi_model_code_review.aggregator import (
 
 def make_review(model: str, changes: list[tuple[str, Verdict]]) -> ModelReview:
     """Helper to create ModelReview from (change_id, verdict) tuples."""
-    change_verdicts = [
-        ChangeVerdict(change_id=cid, verdict=v) for cid, v in changes
-    ]
+    change_verdicts = [ChangeVerdict(change_id=cid, verdict=v) for cid, v in changes]
     # Compute gate from changes
     gate = Verdict.PASS
     for cv in change_verdicts:
@@ -111,16 +108,22 @@ class TestFindDisagreements:
 
     def test_multiple_disagreements_sorted_by_severity(self):
         reviews = [
-            make_review("claude", [
-                ("high.py", Verdict.PASS),
-                ("low.py", Verdict.PASS),
-                ("medium.py", Verdict.CONCERN),
-            ]),
-            make_review("gemini", [
-                ("high.py", Verdict.BLOCK),
-                ("low.py", Verdict.CONCERN),
-                ("medium.py", Verdict.BLOCK),
-            ]),
+            make_review(
+                "claude",
+                [
+                    ("high.py", Verdict.PASS),
+                    ("low.py", Verdict.PASS),
+                    ("medium.py", Verdict.CONCERN),
+                ],
+            ),
+            make_review(
+                "gemini",
+                [
+                    ("high.py", Verdict.BLOCK),
+                    ("low.py", Verdict.CONCERN),
+                    ("medium.py", Verdict.BLOCK),
+                ],
+            ),
         ]
         disagreements = find_disagreements(reviews)
 

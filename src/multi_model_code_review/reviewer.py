@@ -4,7 +4,6 @@ import asyncio
 import os
 import re
 import shutil
-from typing import Any
 
 from . import (
     ChangeVerdict,
@@ -82,9 +81,9 @@ async def run_model(model: str, prompt: str, timeout: int = DEFAULT_TIMEOUT) -> 
             proc.communicate(prompt.encode()),
             timeout=timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
-        raise TimeoutError(f"Model {model} timed out after {timeout}s")
+        raise TimeoutError(f"Model {model} timed out after {timeout}s") from None
 
     if proc.returncode != 0:
         raise RuntimeError(f"Model {model} failed: {stderr.decode()}")

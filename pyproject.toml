@@ -27,6 +27,8 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
+    "black>=24.0",
+    "isort>=5.12",
     "ruff>=0.1",
 ]
 
@@ -44,9 +46,25 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/multi_model_code_review"]
 
+[tool.isort]
+profile = "black"
+src_paths = ["src", "tests"]
+known_first_party = ["multi_model_code_review"]
+line_length = 100
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
+select = ["E", "F", "N", "UP", "B", "SIM", "ASYNC"]
+ignore = [
+    "E501",    # Line too long (handled by black)
+    "SIM108",  # Use ternary operator (readability preference)
+    "SIM116",  # Use dictionary instead of if-elif (readability preference)
+    "ASYNC109", # Async function with timeout parameter (our pattern is fine)
+]

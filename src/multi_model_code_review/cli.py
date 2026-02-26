@@ -24,7 +24,8 @@ def cli():
 
 @cli.command()
 @click.option(
-    "--branch", "-b",
+    "--branch",
+    "-b",
     default=None,
     help="Branch to review (default: staged changes)",
 )
@@ -34,23 +35,27 @@ def cli():
     help="Base branch to diff against (default: main)",
 )
 @click.option(
-    "--spec", "-s",
+    "--spec",
+    "-s",
     default=None,
     help="Path to spec file for compliance checking",
 )
 @click.option(
-    "--model", "-m",
+    "--model",
+    "-m",
     multiple=True,
     help="Models to use (default: claude, gemini)",
 )
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Choice(["full", "summary"]),
     default="full",
     help="Output format (default: full)",
 )
 @click.option(
-    "--output-dir", "-d",
+    "--output-dir",
+    "-d",
     type=click.Path(),
     default=None,
     help="Directory to save outputs (report.md + per-model raw responses)",
@@ -108,6 +113,7 @@ def review(branch, base, spec, model, output, output_dir):
     # Save to files if output-dir specified
     if output_dir:
         import os
+
         os.makedirs(output_dir, exist_ok=True)
 
         # Save report
@@ -129,7 +135,8 @@ def review(branch, base, spec, model, output, output_dir):
 
 @cli.command()
 @click.option(
-    "--branch", "-b",
+    "--branch",
+    "-b",
     default=None,
     help="Branch to review (default: staged changes)",
 )
@@ -139,17 +146,20 @@ def review(branch, base, spec, model, output, output_dir):
     help="Base branch to diff against (default: main)",
 )
 @click.option(
-    "--spec", "-s",
+    "--spec",
+    "-s",
     default=None,
     help="Path to spec file for compliance checking",
 )
 @click.option(
-    "--model", "-m",
+    "--model",
+    "-m",
     multiple=True,
     help="Models to use (default: claude, gemini)",
 )
 @click.option(
-    "--output-dir", "-d",
+    "--output-dir",
+    "-d",
     type=click.Path(),
     default=None,
     help="Directory to save outputs (report.md + per-model raw responses)",
@@ -205,6 +215,7 @@ def gate(branch, base, spec, model, output_dir):
     # Save to files if output-dir specified
     if output_dir:
         import os
+
         os.makedirs(output_dir, exist_ok=True)
 
         # Save full report
@@ -234,7 +245,8 @@ def gate(branch, base, spec, model, output_dir):
 
 @cli.command()
 @click.option(
-    "--branch", "-b",
+    "--branch",
+    "-b",
     default=None,
     help="Branch to review (default: staged changes)",
 )
@@ -244,7 +256,8 @@ def gate(branch, base, spec, model, output_dir):
     help="Base branch to diff against (default: main)",
 )
 @click.option(
-    "--model", "-m",
+    "--model",
+    "-m",
     multiple=True,
     help="Models to use (default: claude, gemini)",
 )
@@ -307,7 +320,8 @@ def compare(branch, base, model):
 @cli.command("check-spec")
 @click.argument("spec_file", type=click.Path(exists=True))
 @click.option(
-    "--branch", "-b",
+    "--branch",
+    "-b",
     default=None,
     help="Branch to check (default: staged changes)",
 )
@@ -317,7 +331,8 @@ def compare(branch, base, model):
     help="Base branch to diff against (default: main)",
 )
 @click.option(
-    "--model", "-m",
+    "--model",
+    "-m",
     default="claude",
     help="Model to use (default: claude)",
 )

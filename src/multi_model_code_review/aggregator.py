@@ -43,11 +43,13 @@ def find_disagreements(reviews: list[ModelReview]) -> list[dict]:
             else:
                 severity = "LOW"  # PASS vs CONCERN
 
-            disagreements.append({
-                "change_id": change_id,
-                "verdicts": {model: v.value for model, v in verdicts.items()},
-                "severity": severity,
-            })
+            disagreements.append(
+                {
+                    "change_id": change_id,
+                    "verdicts": {model: v.value for model, v in verdicts.items()},
+                    "severity": severity,
+                }
+            )
 
     # Sort by severity
     severity_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
