@@ -717,9 +717,26 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
 
     This is the recommended way to run code review for best results.
     """
+    import os
+    import re
+    from datetime import datetime
+
     from .reviewer import parse_observations
 
     models = list(model) if model else DEFAULT_MODELS
+
+    # Generate default output_dir if not specified
+    if output_dir is None:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        # Try to extract MR number from branch name (e.g., feat/foo-123 -> 123)
+        mr_match = re.search(r"-(\d+)$", branch or "staged")
+        if mr_match:
+            mr_id = f"mr-{mr_match.group(1)}"
+        else:
+            # Use sanitized branch name
+            mr_id = (branch or "staged").replace("/", "-")
+        output_dir = os.path.join("reviews", mr_id, timestamp)
+        click.echo(f"Saving review to {output_dir}/", err=True)
 
     # Preflight check
     missing = preflight_check(models)
@@ -805,29 +822,26 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
     else:
         report = format_summary(result)
 
-    # Save to files if output-dir specified
-    if output_dir:
-        import os
+    # Save to files (output_dir always has a default now)
+    os.makedirs(output_dir, exist_ok=True)
 
-        os.makedirs(output_dir, exist_ok=True)
+    report_path = os.path.join(output_dir, "report.md")
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(report)
+    click.echo(f"Saved report to {report_path}", err=True)
 
-        report_path = os.path.join(output_dir, "report.md")
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write(report)
-        click.echo(f"Saved report to {report_path}", err=True)
+    # Save observations
+    if all_observations:
+        obs_path = os.path.join(output_dir, "observations.json")
+        with open(obs_path, "w", encoding="utf-8") as f:
+            json.dump(all_observations, f, indent=2, default=str)
+        click.echo(f"Saved observations to {obs_path}", err=True)
 
-        # Save observations
-        if all_observations:
-            obs_path = os.path.join(output_dir, "observations.json")
-            with open(obs_path, "w", encoding="utf-8") as f:
-                json.dump(all_observations, f, indent=2, default=str)
-            click.echo(f"Saved observations to {obs_path}", err=True)
-
-        for model_review in reviews:
-            raw_path = os.path.join(output_dir, f"{model_review.model}-raw.txt")
-            with open(raw_path, "w", encoding="utf-8") as f:
-                f.write(model_review.raw_response)
-            click.echo(f"Saved {model_review.model} raw response to {raw_path}", err=True)
+    for model_review in reviews:
+        raw_path = os.path.join(output_dir, f"{model_review.model}-raw.txt")
+        with open(raw_path, "w", encoding="utf-8") as f:
+            f.write(model_review.raw_response)
+        click.echo(f"Saved {model_review.model} raw response to {raw_path}", err=True)
 
     click.echo(report)
 
