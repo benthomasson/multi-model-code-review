@@ -1,7 +1,7 @@
 """Linting checks as pre-model gate."""
 
-import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 
 
@@ -31,8 +31,13 @@ class LintResult:
 
 
 def check_linter_available(name: str) -> bool:
-    """Check if a linter is available."""
-    return shutil.which(name) is not None
+    """Check if a linter module is available via python -m."""
+    result = subprocess.run(
+        [sys.executable, "-m", name, "--version"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
 
 
 def run_black_check(paths: list[str]) -> tuple[bool, str]:
@@ -44,7 +49,7 @@ def run_black_check(paths: list[str]) -> tuple[bool, str]:
         return True, ""  # Skip if not installed
 
     result = subprocess.run(
-        ["black", "--check", "--quiet"] + paths,
+        [sys.executable, "-m", "black", "--check", "--quiet"] + paths,
         capture_output=True,
         text=True,
     )
@@ -54,7 +59,7 @@ def run_black_check(paths: list[str]) -> tuple[bool, str]:
     else:
         # Get list of files that would be reformatted
         result_verbose = subprocess.run(
-            ["black", "--check"] + paths,
+            [sys.executable, "-m", "black", "--check"] + paths,
             capture_output=True,
             text=True,
         )
@@ -70,7 +75,7 @@ def run_isort_check(paths: list[str]) -> tuple[bool, str]:
         return True, ""  # Skip if not installed
 
     result = subprocess.run(
-        ["isort", "--check-only", "--quiet"] + paths,
+        [sys.executable, "-m", "isort", "--check-only", "--quiet"] + paths,
         capture_output=True,
         text=True,
     )
@@ -80,7 +85,7 @@ def run_isort_check(paths: list[str]) -> tuple[bool, str]:
     else:
         # Get list of files that would be reformatted
         result_verbose = subprocess.run(
-            ["isort", "--check-only", "--diff"] + paths,
+            [sys.executable, "-m", "isort", "--check-only", "--diff"] + paths,
             capture_output=True,
             text=True,
         )
@@ -96,7 +101,7 @@ def run_ruff_check(paths: list[str]) -> tuple[bool, str]:
         return True, ""  # Skip if not installed
 
     result = subprocess.run(
-        ["ruff", "check"] + paths,
+        [sys.executable, "-m", "ruff", "check"] + paths,
         capture_output=True,
         text=True,
     )
@@ -159,7 +164,7 @@ def run_black_fix(paths: list[str]) -> int:
         return 0
 
     result = subprocess.run(
-        ["black"] + paths,
+        [sys.executable, "-m", "black"] + paths,
         capture_output=True,
         text=True,
     )
@@ -177,7 +182,7 @@ def run_isort_fix(paths: list[str]) -> int:
 
     # First check how many need fixing
     check_result = subprocess.run(
-        ["isort", "--check-only"] + paths,
+        [sys.executable, "-m", "isort", "--check-only"] + paths,
         capture_output=True,
         text=True,
     )
@@ -187,7 +192,7 @@ def run_isort_fix(paths: list[str]) -> int:
 
     # Count files that would be changed
     diff_result = subprocess.run(
-        ["isort", "--check-only", "--diff"] + paths,
+        [sys.executable, "-m", "isort", "--check-only", "--diff"] + paths,
         capture_output=True,
         text=True,
     )
@@ -196,7 +201,7 @@ def run_isort_fix(paths: list[str]) -> int:
 
     # Now fix them
     subprocess.run(
-        ["isort"] + paths,
+        [sys.executable, "-m", "isort"] + paths,
         capture_output=True,
         text=True,
     )
@@ -210,7 +215,7 @@ def run_ruff_fix(paths: list[str]) -> int:
         return 0
 
     result = subprocess.run(
-        ["ruff", "check", "--fix"] + paths,
+        [sys.executable, "-m", "ruff", "check", "--fix"] + paths,
         capture_output=True,
         text=True,
     )
@@ -230,8 +235,8 @@ def run_lint_fixes(paths: list[str]) -> FixResult:
     """
     Run all lint fixers on the given paths.
 
-    Order matters: isort first (import ordering), then black (formatting),
-    then ruff (remaining auto-fixable issues).
+    Order: isort (imports) → ruff (remove unused, etc) → black (final formatting).
+    Black runs last to clean up any artifacts from other fixers.
 
     Args:
         paths: List of file/directory paths to fix
@@ -240,8 +245,8 @@ def run_lint_fixes(paths: list[str]) -> FixResult:
         FixResult with counts of fixes applied
     """
     isort_fixed = run_isort_fix(paths)
-    black_fixed = run_black_fix(paths)
     ruff_fixed = run_ruff_fix(paths)
+    black_fixed = run_black_fix(paths)
 
     return FixResult(
         black_fixed=black_fixed,
