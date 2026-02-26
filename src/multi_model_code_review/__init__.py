@@ -47,6 +47,22 @@ class Integration(Enum):
     MISSING = "MISSING"
 
 
+class Confidence(Enum):
+    """Self-assessment confidence level."""
+
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
+@dataclass
+class SelfReview:
+    """Model's self-assessment of its review quality."""
+
+    confidence: Confidence
+    limitations: str = ""
+
+
 @dataclass
 class ChangeVerdict:
     """Review verdict for a single change (file or function)."""
@@ -68,6 +84,8 @@ class ModelReview:
     gate: Verdict  # Overall PASS/BLOCK for this model
     changes: list[ChangeVerdict] = field(default_factory=list)
     raw_response: str = ""
+    self_review: SelfReview | None = None
+    feature_requests: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -88,6 +106,8 @@ __all__ = [
     "SpecCompliance",
     "TestCoverage",
     "Integration",
+    "Confidence",
+    "SelfReview",
     "ChangeVerdict",
     "ModelReview",
     "AggregateReview",

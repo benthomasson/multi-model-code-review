@@ -38,6 +38,21 @@ def format_model_review(review: ModelReview) -> str:
 
         lines.append("")
 
+    # Add self-review section if present
+    if review.self_review:
+        lines.append("### Self-Review")
+        lines.append(f"**Confidence:** {review.self_review.confidence.value}")
+        if review.self_review.limitations:
+            lines.append(f"**Limitations:** {review.self_review.limitations}")
+        lines.append("")
+
+    # Add feature requests section if present
+    if review.feature_requests:
+        lines.append("### Feature Requests")
+        for req in review.feature_requests:
+            lines.append(f"- {req}")
+        lines.append("")
+
     return "\n".join(lines)
 
 

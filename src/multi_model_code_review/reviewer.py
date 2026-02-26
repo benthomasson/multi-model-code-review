@@ -7,9 +7,11 @@ import shutil
 
 from . import (
     ChangeVerdict,
+    Confidence,
     Correctness,
     Integration,
     ModelReview,
+    SelfReview,
     SpecCompliance,
     TestCoverage,
     Verdict,
@@ -167,6 +169,60 @@ CHANGE_PATTERN = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 
+# Pattern to match self-review section
+SELF_REVIEW_PATTERN = re.compile(
+    r"###\s*SELF_REVIEW\s*\n"
+    r"CONFIDENCE:\s*(HIGH|MEDIUM|LOW)\s*\n"
+    r"LIMITATIONS:\s*(.*?)(?=\n---|\n###|\n##|$)",
+    re.DOTALL | re.IGNORECASE,
+)
+
+# Pattern to match feature requests section
+FEATURE_REQUESTS_PATTERN = re.compile(
+    r"###\s*FEATURE_REQUESTS\s*\n" r"(.*?)(?=\n---|\n###|\n##|$)",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def parse_confidence(text: str) -> Confidence:
+    """Parse confidence string to enum."""
+    text = text.strip().upper()
+    if text == "HIGH":
+        return Confidence.HIGH
+    elif text == "LOW":
+        return Confidence.LOW
+    else:
+        return Confidence.MEDIUM
+
+
+def parse_self_review(response: str) -> SelfReview | None:
+    """Parse self-review section from response."""
+    match = SELF_REVIEW_PATTERN.search(response)
+    if not match:
+        return None
+
+    confidence = parse_confidence(match.group(1))
+    limitations = match.group(2).strip() if match.group(2) else ""
+
+    return SelfReview(confidence=confidence, limitations=limitations)
+
+
+def parse_feature_requests(response: str) -> list[str]:
+    """Parse feature requests section from response."""
+    match = FEATURE_REQUESTS_PATTERN.search(response)
+    if not match:
+        return []
+
+    content = match.group(1).strip()
+    # Parse bullet points (- item)
+    requests = []
+    for line in content.split("\n"):
+        line = line.strip()
+        if line.startswith("- ") or line.startswith("* "):
+            requests.append(line[2:].strip())
+
+    return requests
+
 
 def parse_review_response(model: str, response: str) -> ModelReview:
     """
@@ -215,11 +271,17 @@ def parse_review_response(model: str, response: str) -> ModelReview:
     if not changes:
         gate = Verdict.CONCERN
 
+    # Parse self-review and feature requests
+    self_review = parse_self_review(response)
+    feature_requests = parse_feature_requests(response)
+
     return ModelReview(
         model=model,
         gate=gate,
         changes=changes,
         raw_response=response,
+        self_review=self_review,
+        feature_requests=feature_requests,
     )
 
 
