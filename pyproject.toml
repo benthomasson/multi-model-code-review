@@ -1,6 +1,6 @@
 [project]
 name = "multi-model-code-review"
-version = "0.1.0"
+version = "0.2.0"
 description = "AI-first code review using multiple models to surface issues before human review"
 readme = "README.md"
 license = { text = "MIT" }
