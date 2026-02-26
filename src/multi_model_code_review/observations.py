@@ -20,6 +20,7 @@ reviewer with the additional context.
 from __future__ import annotations
 
 import ast
+import asyncio
 import importlib
 import sys
 from pathlib import Path
@@ -188,17 +189,19 @@ async def find_usages(symbol: str, repo_path: str) -> dict[str, Any]:
         Dict with files and line numbers where the symbol is used
     """
     try:
-        import subprocess
-
-        result = subprocess.run(
-            ["grep", "-rn", "--include=*.py", symbol, repo_path],
-            capture_output=True,
-            text=True,
-            timeout=30,
+        proc = await asyncio.create_subprocess_exec(
+            "grep", "-rn", "--include=*.py", symbol, repo_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            proc.kill()
+            return {"error": "grep timed out", "symbol": symbol}
 
         usages = []
-        for line in result.stdout.strip().split("\n"):
+        for line in stdout.decode().strip().split("\n"):
             if line and ":" in line:
                 parts = line.split(":", 2)
                 if len(parts) >= 3:
@@ -231,20 +234,22 @@ async def git_blame(file_path: str, start_line: int, end_line: int, repo_path: s
         Dict with blame information per line
     """
     try:
-        import subprocess
-
-        result = subprocess.run(
-            ["git", "-C", repo_path, "blame", "-L", f"{start_line},{end_line}", "--porcelain", file_path],
-            capture_output=True,
-            text=True,
-            timeout=30,
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_path, "blame", "-L", f"{start_line},{end_line}", "--porcelain", file_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            proc.kill()
+            return {"error": "git blame timed out", "file": file_path}
 
-        if result.returncode != 0:
-            return {"error": result.stderr, "file": file_path}
+        if proc.returncode != 0:
+            return {"error": stderr.decode(), "file": file_path}
 
         # Parse porcelain format
-        lines = result.stdout.strip().split("\n")
+        lines = stdout.decode().strip().split("\n")
         blame_info = []
         current_commit = None
         current_author = None
@@ -302,17 +307,19 @@ async def test_coverage(file_path: str, repo_path: str) -> dict[str, Any]:
             f"test_{module_name}*.py",
         ]
 
-        import subprocess
-
         tests_found = []
         for pattern in test_patterns:
-            result = subprocess.run(
-                ["find", repo_path, "-name", pattern, "-path", "*/tests/*"],
-                capture_output=True,
-                text=True,
-                timeout=30,
+            proc = await asyncio.create_subprocess_exec(
+                "find", repo_path, "-name", pattern, "-path", "*/tests/*",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            for test_file in result.stdout.strip().split("\n"):
+            try:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+            except asyncio.TimeoutError:
+                proc.kill()
+                continue
+            for test_file in stdout.decode().strip().split("\n"):
                 if test_file:
                     tests_found.append(test_file.replace(repo_path + "/", ""))
 
@@ -591,7 +598,7 @@ async def run_observation(name: str, tool: str, params: dict[str, Any], repo_pat
 
 async def run_observations(observations: list[dict[str, Any]], repo_path: str) -> dict[str, Any]:
     """
-    Run multiple observations and collect results.
+    Run multiple observations in parallel and collect results.
 
     Args:
         observations: List of observation requests
@@ -601,6 +608,9 @@ async def run_observations(observations: list[dict[str, Any]], repo_path: str) -
         Dict mapping observation names to results
     """
     results = {}
+    tasks = []
+    task_names = []
+
     for obs in observations:
         name = obs.get("name", "unnamed")
         tool = obs.get("tool")
@@ -610,7 +620,15 @@ async def run_observations(observations: list[dict[str, Any]], repo_path: str) -
             results[name] = {"error": "No tool specified"}
             continue
 
-        result = await run_observation(name, tool, params, repo_path)
-        results[name] = result["result"]
+        tasks.append(run_observation(name, tool, params, repo_path))
+        task_names.append(name)
+
+    if tasks:
+        task_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for name, result in zip(task_names, task_results):
+            if isinstance(result, Exception):
+                results[name] = {"error": str(result)}
+            else:
+                results[name] = result["result"]
 
     return results

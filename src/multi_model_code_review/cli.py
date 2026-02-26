@@ -49,7 +49,7 @@ def cli():
     "--repo",
     "-r",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    default=None,
+    default=".",
     help="Repository directory to analyze (default: current directory)",
 )
 @click.option(
@@ -258,7 +258,7 @@ def observe(branch, base, repo, model, output, run):
         sys.exit(0)
 
     # Preflight check
-    if not preflight_check([model]) == []:
+    if preflight_check([model]) != []:
         click.echo(f"Error: Model '{model}' CLI not available", err=True)
         sys.exit(1)
 
@@ -318,7 +318,7 @@ def observe(branch, base, repo, model, output, run):
     "--repo",
     "-r",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    default=None,
+    default=".",
     help="Repository directory to analyze (default: current directory)",
 )
 @click.option(
@@ -464,7 +464,7 @@ def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint):
     "--repo",
     "-r",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    default=None,
+    default=".",
     help="Repository directory to analyze (default: current directory)",
 )
 @click.option(
@@ -546,7 +546,7 @@ def compare(branch, base, repo, model):
     "--repo",
     "-r",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    default=None,
+    default=".",
     help="Repository directory to analyze (default: current directory)",
 )
 @click.option(
@@ -610,7 +610,7 @@ def check_spec(spec_file, branch, base, repo, model):
     "--repo",
     "-r",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    default=None,
+    default=".",
     help="Repository directory to analyze (default: current directory)",
 )
 @click.option(
@@ -790,7 +790,7 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
     if python_files:
         click.echo(f"Auto-lookup: {len(python_files)} Python file(s) changed", err=True)
         for file_path in python_files[:10]:  # Limit to first 10 files
-            result = asyncio.run(coverage_map_tests(file_path, repo or "."))
+            result = asyncio.run(coverage_map_tests(file_path, repo))
             if "error" not in result and result.get("tests"):
                 obs_name = f"coverage_{file_path.replace('/', '_').replace('.py', '')}"
                 all_observations[obs_name] = result
