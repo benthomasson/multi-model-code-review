@@ -9,9 +9,9 @@ import json
 
 from . import Verdict
 from .aggregator import aggregate_reviews
-from .git_utils import get_diff, read_file_content
+from .git_utils import extract_changed_files, get_diff, read_file_content
 from .lint import get_changed_python_files, run_lint_checks, run_lint_fixes
-from .observations import run_observations
+from .observations import coverage_map_tests, run_observations
 from .prompts import build_observe_prompt, build_review_prompt, build_spec_check_prompt
 from .report import format_aggregate_review, format_summary
 from .reviewer import (
@@ -783,6 +783,23 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
 
     # Create output_dir early so we can save iteration artifacts
     os.makedirs(output_dir, exist_ok=True)
+
+    # Auto-lookup coverage-map for changed files
+    changed_files = extract_changed_files(diff_content)
+    python_files = [f for f in changed_files if f.endswith(".py") and not f.startswith("tests/")]
+    if python_files:
+        click.echo(f"Auto-lookup: {len(python_files)} Python file(s) changed", err=True)
+        for file_path in python_files[:10]:  # Limit to first 10 files
+            result = asyncio.run(coverage_map_tests(file_path, repo or "."))
+            if "error" not in result and result.get("tests"):
+                obs_name = f"coverage_{file_path.replace('/', '_').replace('.py', '')}"
+                all_observations[obs_name] = result
+                click.echo(f"  {file_path}: {result.get('test_count', 0)} tests", err=True)
+        if all_observations:
+            # Save auto-observations
+            with open(os.path.join(output_dir, "00-auto-coverage.json"), "w") as f:
+                json.dump(all_observations, f, indent=2, default=str)
+            click.echo(f"Auto-lookup found tests for {len(all_observations)} file(s)", err=True)
 
     for iteration in range(1, max_iterations + 1):
         click.echo(f"\n=== Iteration {iteration}/{max_iterations} ===", err=True)

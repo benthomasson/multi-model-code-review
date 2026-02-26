@@ -21,7 +21,9 @@ Do NOT render verdicts yet. Only request observations.
 | `raises_analysis` | What exceptions a function raises | New function calls, error paths |
 | `call_graph` | What a function calls | Impact analysis |
 | `find_usages` | Where a symbol is used | Integration verification |
-| `test_coverage` | Find tests for a file | Test coverage claims |
+| `test_coverage` | Find tests for a file (uses coverage-map if available) | Test coverage claims |
+| `coverage_map_tests` | Find tests covering a file (from coverage-map.json) | Precise test coverage from actual execution |
+| `coverage_map_files` | Find files covered by tests matching a pattern | Impact analysis for test changes |
 | `file_imports` | Extract imports from a file | Verify import changes, check dependencies |
 | `project_dependencies` | Get pyproject.toml/requirements.txt | Verify new imports have dependencies |
 

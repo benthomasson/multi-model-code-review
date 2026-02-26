@@ -275,15 +275,23 @@ async def test_coverage(file_path: str, repo_path: str) -> dict[str, Any]:
     """
     Find tests that cover a given file.
 
+    Uses coverage-map.json if available (precise coverage data),
+    otherwise falls back to naming conventions.
+
     Args:
         file_path: Path to the source file
         repo_path: Repository path
 
     Returns:
-        Dict with test files that likely test this module
+        Dict with test files/functions that cover this module
     """
     try:
-        # Extract module name from path
+        # Try coverage-map.json first for precise data
+        coverage_map_result = await coverage_map_tests(file_path, repo_path)
+        if "error" not in coverage_map_result and coverage_map_result.get("tests"):
+            return coverage_map_result
+
+        # Fall back to naming conventions
         path = Path(file_path)
         module_name = path.stem  # e.g., "client" from "client.py"
 
@@ -311,9 +319,103 @@ async def test_coverage(file_path: str, repo_path: str) -> dict[str, Any]:
         return {
             "source_file": file_path,
             "test_files": list(set(tests_found)),
+            "method": "naming_convention",
         }
     except Exception as e:
         return {"error": str(e), "file": file_path}
+
+
+async def coverage_map_tests(file_path: str, repo_path: str) -> dict[str, Any]:
+    """
+    Find tests that cover a file using coverage-map.json.
+
+    Args:
+        file_path: Path to the source file (relative or absolute)
+        repo_path: Repository path where coverage-map.json is located
+
+    Returns:
+        Dict with tests that cover the file (from coverage-map data)
+    """
+    import json
+
+    try:
+        coverage_map_path = Path(repo_path) / "coverage-map.json"
+        if not coverage_map_path.exists():
+            return {"error": "coverage-map.json not found", "file": file_path}
+
+        with open(coverage_map_path) as f:
+            data = json.load(f)
+
+        file_to_tests = data.get("file_to_tests", {})
+
+        # Normalize file path for matching
+        # Strip leading repo path if present
+        normalized_path = file_path
+        if repo_path and file_path.startswith(repo_path):
+            normalized_path = file_path[len(repo_path):].lstrip("/")
+
+        # Try exact match first
+        tests = file_to_tests.get(normalized_path, [])
+
+        # If not found, try partial match
+        if not tests:
+            for mapped_file, mapped_tests in file_to_tests.items():
+                if normalized_path in mapped_file or mapped_file.endswith(normalized_path):
+                    tests = mapped_tests
+                    normalized_path = mapped_file
+                    break
+
+        return {
+            "source_file": normalized_path,
+            "tests": tests,
+            "test_count": len(tests),
+            "method": "coverage_map",
+        }
+    except Exception as e:
+        return {"error": str(e), "file": file_path}
+
+
+async def coverage_map_files(test_pattern: str, repo_path: str) -> dict[str, Any]:
+    """
+    Find files covered by tests matching a pattern using coverage-map.json.
+
+    Args:
+        test_pattern: Test name or pattern to match
+        repo_path: Repository path where coverage-map.json is located
+
+    Returns:
+        Dict with files covered by matching tests
+    """
+    import json
+
+    try:
+        coverage_map_path = Path(repo_path) / "coverage-map.json"
+        if not coverage_map_path.exists():
+            return {"error": "coverage-map.json not found", "pattern": test_pattern}
+
+        with open(coverage_map_path) as f:
+            data = json.load(f)
+
+        test_to_files = data.get("test_to_files", {})
+
+        # Find all matching tests and aggregate files
+        matched_tests = []
+        all_files: set[str] = set()
+
+        for test_name, test_files in test_to_files.items():
+            if test_pattern in test_name:
+                matched_tests.append(test_name)
+                all_files.update(test_files)
+
+        return {
+            "pattern": test_pattern,
+            "matched_tests": len(matched_tests),
+            "files": sorted(all_files),
+            "file_count": len(all_files),
+            "method": "coverage_map",
+        }
+    except Exception as e:
+        return {"error": str(e), "pattern": test_pattern}
 
 
 async def file_imports(file_path: str, repo_path: str | None = None) -> dict[str, Any]:
@@ -441,6 +543,8 @@ OBSERVATION_TOOLS: dict[str, Any] = {
     "find_usages": find_usages,
     "git_blame": git_blame,
     "test_coverage": test_coverage,
+    "coverage_map_tests": coverage_map_tests,
+    "coverage_map_files": coverage_map_files,
     "file_imports": file_imports,
     "project_dependencies": project_dependencies,
 }

@@ -65,3 +65,25 @@ def read_file_content(path: str) -> str | None:
             return f.read()
     except FileNotFoundError:
         return None
+
+
+def extract_changed_files(diff_content: str) -> list[str]:
+    """
+    Extract file paths from a git diff.
+
+    Args:
+        diff_content: Git diff output
+
+    Returns:
+        List of file paths that were changed
+    """
+    import re
+
+    files = []
+    # Match "+++ b/path/to/file" lines
+    for line in diff_content.split("\n"):
+        if line.startswith("+++ b/"):
+            path = line[6:]  # Remove "+++ b/" prefix
+            if path != "/dev/null":  # Exclude deleted files
+                files.append(path)
+    return files
