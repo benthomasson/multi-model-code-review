@@ -278,7 +278,16 @@ def observe(branch, base, repo, model, output, run):
             # Run the observations
             click.echo("Running observations...", err=True)
             result = asyncio.run(run_observations(requested_obs, repo))
-            click.echo(f"Completed {len(result)} observation(s)", err=True)
+
+            # Flag any failed observations
+            failed_obs = [(name, res) for name, res in result.items() if isinstance(res, dict) and "error" in res]
+            if failed_obs:
+                click.echo(click.style(f"WARNING: {len(failed_obs)} observation(s) failed:", fg="yellow"), err=True)
+                for name, res in failed_obs:
+                    click.echo(click.style(f"  - {name}: {res.get('error', 'Unknown error')}", fg="yellow"), err=True)
+
+            succeeded = len(result) - len(failed_obs)
+            click.echo(f"Completed {len(result)} observation(s) ({succeeded} succeeded, {len(failed_obs)} failed)", err=True)
         else:
             # Just output the requests (--no-run)
             result = {"_requests": requested_obs, "_results": {}}
@@ -804,10 +813,18 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
             new_obs = asyncio.run(run_observations(requested_obs, repo))
             all_observations.update(new_obs)
 
+            # Flag any failed observations
+            failed_obs = [(name, result) for name, result in new_obs.items() if isinstance(result, dict) and "error" in result]
+            if failed_obs:
+                click.echo(click.style(f"WARNING: {len(failed_obs)} observation(s) failed:", fg="yellow"), err=True)
+                for name, result in failed_obs:
+                    click.echo(click.style(f"  - {name}: {result.get('error', 'Unknown error')}", fg="yellow"), err=True)
+
             with open(os.path.join(output_dir, f"{iter_prefix}-observations.json"), "w") as f:
                 json.dump(new_obs, f, indent=2, default=str)
 
-            click.echo(f"Total observations: {len(all_observations)}", err=True)
+            succeeded = len(new_obs) - len(failed_obs)
+            click.echo(f"Total observations: {len(all_observations)} ({succeeded} succeeded, {len(failed_obs)} failed)", err=True)
         else:
             click.echo("No new observations requested.", err=True)
 
