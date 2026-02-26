@@ -75,6 +75,35 @@ Examples of limitations:
 - "Test file not included in diff - cannot verify coverage claims"
 - "Spec file referenced but not provided"
 
+## Observation Requests
+
+If you need more information to render a confident verdict, you can request observations.
+Available observation tools:
+
+| Tool | Purpose | Example params |
+|------|---------|----------------|
+| `exception_hierarchy` | Show exception class MRO and all subclasses | `{{"class_name": "httpx.TransportError"}}` |
+| `raises_analysis` | Static analysis of what a function raises | `{{"file_path": "src/client.py", "function_name": "authenticate"}}` |
+| `call_graph` | What functions does a function call | `{{"file_path": "src/client.py", "function_name": "authenticate"}}` |
+| `find_usages` | Where is a symbol used in the codebase | `{{"symbol": "DataverseClient"}}` |
+| `git_blame` | Who changed specific lines | `{{"file_path": "src/client.py", "start_line": 100, "end_line": 120}}` |
+| `test_coverage` | Find tests for a source file | `{{"file_path": "src/client.py"}}` |
+
+To request observations, add this section:
+
+### OBSERVATIONS
+```json
+[
+  {{"name": "result_name", "tool": "tool_name", "params": {{...}}}}
+]
+```
+---
+
+The system will run your observations and re-invoke you with the results. Only request
+observations when you genuinely need more context - the review will iterate up to 3 times.
+
+{observations_section}
+
 ## Feature Requests
 
 If this review tool could be improved to help you do a better job, suggest features:
@@ -96,17 +125,21 @@ Only include this section if you have specific suggestions. Skip if none.
 def build_review_prompt(
     diff_content: str,
     spec_content: str | None = None,
+    observations: dict | None = None,
 ) -> str:
     """
-    Build the review prompt with diff and optional spec.
+    Build the review prompt with diff, optional spec, and observation results.
 
     Args:
         diff_content: Git diff to review
         spec_content: Optional spec file content
+        observations: Optional dict of observation results from previous iteration
 
     Returns:
         Complete prompt for model
     """
+    import json
+
     if spec_content:
         spec_section = f"""## Specification
 
@@ -119,7 +152,22 @@ Review the code against this specification. Flag any MUST requirements that are 
     else:
         spec_section = "## Specification\n\nNo specification provided. Focus on correctness, tests, and integration."
 
+    if observations:
+        observations_section = f"""## Observation Results
+
+You previously requested observations. Here are the results:
+
+```json
+{json.dumps(observations, indent=2, default=str)}
+```
+
+Use these results to inform your review. Do not request the same observations again.
+"""
+    else:
+        observations_section = ""
+
     return CODE_REVIEW_PROMPT.format(
         spec_section=spec_section,
         diff_content=diff_content,
+        observations_section=observations_section,
     )

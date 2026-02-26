@@ -134,9 +134,9 @@ def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint):
     # Build prompt
     prompt = build_review_prompt(diff_content, spec_content)
 
-    # Run reviews
+    # Run reviews (with observation support)
     click.echo(f"Running review with {', '.join(models)}...", err=True)
-    reviews = asyncio.run(review_with_models(models, prompt))
+    reviews = asyncio.run(review_with_models(models, prompt, repo_path=repo))
 
     # Aggregate
     result = aggregate_reviews(diff_ref, reviews, spec)
@@ -278,9 +278,9 @@ def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint):
     # Build prompt
     prompt = build_review_prompt(diff_content, spec_content)
 
-    # Run reviews
+    # Run reviews (with observation support)
     click.echo(f"Running gate check with {', '.join(models)}...", err=True)
-    reviews = asyncio.run(review_with_models(models, prompt))
+    reviews = asyncio.run(review_with_models(models, prompt, repo_path=repo))
 
     # Aggregate
     result = aggregate_reviews(diff_ref, reviews, spec)
@@ -374,9 +374,9 @@ def compare(branch, base, repo, model):
     # Build prompt (no spec for simple compare)
     prompt = build_review_prompt(diff_content)
 
-    # Run reviews
+    # Run reviews (with observation support)
     click.echo(f"Running comparison with {', '.join(models)}...", err=True)
-    reviews = asyncio.run(review_with_models(models, prompt))
+    reviews = asyncio.run(review_with_models(models, prompt, repo_path=repo))
 
     # Aggregate
     result = aggregate_reviews(diff_ref, reviews)

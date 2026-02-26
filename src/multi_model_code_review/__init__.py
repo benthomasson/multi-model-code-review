@@ -86,6 +86,7 @@ class ModelReview:
     raw_response: str = ""
     self_review: SelfReview | None = None
     feature_requests: list[str] = field(default_factory=list)
+    observations: dict = field(default_factory=dict)  # Results from observation tools
 
 
 @dataclass
