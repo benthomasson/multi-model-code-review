@@ -49,7 +49,13 @@ def cli():
     default="full",
     help="Output format (default: full)",
 )
-def review(branch, base, spec, model, output):
+@click.option(
+    "--output-dir", "-d",
+    type=click.Path(),
+    default=None,
+    help="Directory to save outputs (report.md + per-model raw responses)",
+)
+def review(branch, base, spec, model, output, output_dir):
     """Run code review with multiple models."""
     models = list(model) if model else DEFAULT_MODELS
 
@@ -93,11 +99,32 @@ def review(branch, base, spec, model, output):
     # Aggregate
     result = aggregate_reviews(diff_ref, reviews, spec)
 
-    # Output
+    # Format output
     if output == "full":
-        click.echo(format_aggregate_review(result))
+        report = format_aggregate_review(result)
     else:
-        click.echo(format_summary(result))
+        report = format_summary(result)
+
+    # Save to files if output-dir specified
+    if output_dir:
+        import os
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Save report
+        report_path = os.path.join(output_dir, "report.md")
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(report)
+        click.echo(f"Saved report to {report_path}", err=True)
+
+        # Save raw responses per model
+        for model_review in reviews:
+            raw_path = os.path.join(output_dir, f"{model_review.model}-raw.txt")
+            with open(raw_path, "w", encoding="utf-8") as f:
+                f.write(model_review.raw_response)
+            click.echo(f"Saved {model_review.model} raw response to {raw_path}", err=True)
+
+    # Always output to stdout
+    click.echo(report)
 
 
 @cli.command()
@@ -121,7 +148,13 @@ def review(branch, base, spec, model, output):
     multiple=True,
     help="Models to use (default: claude, gemini)",
 )
-def gate(branch, base, spec, model):
+@click.option(
+    "--output-dir", "-d",
+    type=click.Path(),
+    default=None,
+    help="Directory to save outputs (report.md + per-model raw responses)",
+)
+def gate(branch, base, spec, model, output_dir):
     """
     Run review and exit with code based on result.
 
@@ -168,6 +201,24 @@ def gate(branch, base, spec, model):
 
     # Aggregate
     result = aggregate_reviews(diff_ref, reviews, spec)
+
+    # Save to files if output-dir specified
+    if output_dir:
+        import os
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Save full report
+        report_path = os.path.join(output_dir, "report.md")
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(format_aggregate_review(result))
+        click.echo(f"Saved report to {report_path}", err=True)
+
+        # Save raw responses per model
+        for model_review in reviews:
+            raw_path = os.path.join(output_dir, f"{model_review.model}-raw.txt")
+            with open(raw_path, "w", encoding="utf-8") as f:
+                f.write(model_review.raw_response)
+            click.echo(f"Saved {model_review.model} raw response to {raw_path}", err=True)
 
     # Output summary
     click.echo(format_summary(result))
