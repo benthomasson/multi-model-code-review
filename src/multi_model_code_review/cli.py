@@ -900,6 +900,190 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
     click.echo(report)
 
 
+@cli.command()
+@click.argument("paths", nargs=-1, required=True)
+@click.option(
+    "--repo",
+    "-r",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    default=".",
+    help="Repository directory (default: current directory)",
+)
+@click.option(
+    "--spec",
+    "-s",
+    default=None,
+    help="Path to spec file for compliance checking",
+)
+@click.option(
+    "--model",
+    "-m",
+    multiple=True,
+    help="Models to use (default: claude, gemini)",
+)
+@click.option(
+    "--output-dir",
+    "-d",
+    type=click.Path(),
+    default=None,
+    help="Directory to save outputs",
+)
+@click.option(
+    "--glob",
+    "-g",
+    is_flag=True,
+    help="Treat paths as glob patterns",
+)
+def files(paths, repo, spec, model, output_dir, glob):
+    """
+    Review specific files or directories (not diffs).
+
+    Examples:
+        code-review files src/auth/client.py
+        code-review files src/auth/*.py --glob
+        code-review files src/
+    """
+    import os
+    from datetime import datetime
+    from pathlib import Path
+
+    from .reviewer import parse_observations
+
+    models = list(model) if model else DEFAULT_MODELS
+
+    # Collect files to review
+    files_to_review = []
+    repo_path = Path(repo)
+
+    for path_arg in paths:
+        if glob:
+            # Treat as glob pattern
+            import fnmatch
+            for root, dirs, filenames in os.walk(repo_path):
+                for filename in filenames:
+                    full_path = Path(root) / filename
+                    rel_path = full_path.relative_to(repo_path)
+                    if fnmatch.fnmatch(str(rel_path), path_arg):
+                        files_to_review.append(full_path)
+        else:
+            full_path = repo_path / path_arg if not Path(path_arg).is_absolute() else Path(path_arg)
+            if full_path.is_dir():
+                # Add all Python files in directory
+                for py_file in full_path.rglob("*.py"):
+                    files_to_review.append(py_file)
+            elif full_path.exists():
+                files_to_review.append(full_path)
+            else:
+                click.echo(f"Warning: Path not found: {path_arg}", err=True)
+
+    if not files_to_review:
+        click.echo("No files found to review.", err=True)
+        sys.exit(1)
+
+    # Filter to Python files only
+    files_to_review = [f for f in files_to_review if f.suffix == ".py"]
+    files_to_review = sorted(set(files_to_review))
+
+    click.echo(f"Reviewing {len(files_to_review)} file(s):", err=True)
+    for f in files_to_review[:10]:
+        rel = f.relative_to(repo_path) if f.is_relative_to(repo_path) else f
+        click.echo(f"  {rel}", err=True)
+    if len(files_to_review) > 10:
+        click.echo(f"  ... and {len(files_to_review) - 10} more", err=True)
+
+    # Generate output_dir if not specified
+    if output_dir is None:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        output_dir = os.path.join("reviews", "files", timestamp)
+        click.echo(f"Saving review to {output_dir}/", err=True)
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Preflight check
+    missing = preflight_check(models)
+    if missing:
+        click.echo(f"Error: Missing CLI tools: {', '.join(missing)}", err=True)
+        sys.exit(1)
+
+    # Build pseudo-diff from file contents
+    diff_parts = []
+    for file_path in files_to_review:
+        try:
+            content = file_path.read_text()
+            rel_path = file_path.relative_to(repo_path) if file_path.is_relative_to(repo_path) else file_path
+            # Format as a new file in diff format
+            lines = content.split("\n")
+            diff_part = f"diff --git a/{rel_path} b/{rel_path}\n"
+            diff_part += f"--- /dev/null\n"
+            diff_part += f"+++ b/{rel_path}\n"
+            diff_part += f"@@ -0,0 +1,{len(lines)} @@\n"
+            diff_part += "\n".join(f"+{line}" for line in lines)
+            diff_parts.append(diff_part)
+        except Exception as e:
+            click.echo(f"Warning: Could not read {file_path}: {e}", err=True)
+
+    diff_content = "\n".join(diff_parts)
+    diff_ref = f"files:{len(files_to_review)}"
+
+    # Read spec if provided
+    spec_content = None
+    if spec:
+        spec_content = read_file_content(spec)
+        if spec_content is None:
+            click.echo(f"Warning: Spec file not found: {spec}", err=True)
+
+    # Use first model for observation gathering
+    observe_model = models[0]
+    all_observations = {}
+
+    # Auto-lookup coverage-map for files
+    python_files = [str(f.relative_to(repo_path)) for f in files_to_review if not str(f).startswith("tests")]
+    if python_files:
+        click.echo(f"Auto-lookup: checking coverage for {len(python_files)} file(s)", err=True)
+        for file_path in python_files[:10]:
+            result = asyncio.run(coverage_map_tests(file_path, str(repo_path)))
+            if "error" not in result and result.get("tests"):
+                obs_name = f"coverage_{file_path.replace('/', '_').replace('.py', '')}"
+                all_observations[obs_name] = result
+                click.echo(f"  {file_path}: {result.get('test_count', 0)} tests", err=True)
+        if all_observations:
+            with open(os.path.join(output_dir, "00-auto-coverage.json"), "w") as f:
+                json.dump(all_observations, f, indent=2, default=str)
+
+    # Single iteration for files review (no observe loop needed - we have full context)
+    click.echo(f"\nRunning review with {', '.join(models)}...", err=True)
+    review_prompt = build_review_prompt(diff_content, spec_content, observations=all_observations if all_observations else None)
+
+    # Save review prompt
+    with open(os.path.join(output_dir, "review-prompt.txt"), "w") as f:
+        f.write(review_prompt)
+
+    reviews = asyncio.run(review_with_models(models, review_prompt, observations=all_observations if all_observations else None))
+
+    # Save per-model responses
+    for model_review in reviews:
+        with open(os.path.join(output_dir, f"{model_review.model}-response.txt"), "w") as f:
+            f.write(model_review.raw_response)
+
+    # Aggregate and output
+    result = aggregate_reviews(diff_ref, reviews, spec)
+
+    report = format_aggregate_review(result)
+
+    # Save final report
+    report_path = os.path.join(output_dir, "report.md")
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(report)
+    click.echo(f"Saved report to {report_path}", err=True)
+
+    if all_observations:
+        obs_path = os.path.join(output_dir, "observations.json")
+        with open(obs_path, "w", encoding="utf-8") as f:
+            json.dump(all_observations, f, indent=2, default=str)
+
+    click.echo(report)
+
+
 @cli.command("install-skill")
 @click.option(
     "--skill-dir",

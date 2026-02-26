@@ -103,6 +103,24 @@ Validate implementation against a specification.
 code-review check-spec spec.md -b feature-branch
 ```
 
+### files
+
+Review specific files directly (not diffs). Useful for reviewing existing code or entire modules.
+
+```bash
+# Review a single file
+code-review files src/auth/client.py
+
+# Review multiple files
+code-review files src/auth/client.py src/auth/oauth.py
+
+# Review all Python files in a directory
+code-review files src/auth/
+
+# Review with glob patterns
+code-review files "src/**/*.py" --glob
+```
+
 ## Observation Tools
 
 The review system can request additional context via observation tools:
