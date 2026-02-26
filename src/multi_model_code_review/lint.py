@@ -30,28 +30,30 @@ class LintResult:
         return "\n".join(parts)
 
 
-def check_linter_available(name: str) -> bool:
+def check_linter_available(name: str, cwd: str | None = None) -> bool:
     """Check if a linter module is available via python -m."""
     result = subprocess.run(
         [sys.executable, "-m", name, "--version"],
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
     return result.returncode == 0
 
 
-def run_black_check(paths: list[str]) -> tuple[bool, str]:
+def run_black_check(paths: list[str], cwd: str | None = None) -> tuple[bool, str]:
     """Run black --check on paths."""
     if not paths:
         return True, ""
 
-    if not check_linter_available("black"):
+    if not check_linter_available("black", cwd):
         return True, ""  # Skip if not installed
 
     result = subprocess.run(
         [sys.executable, "-m", "black", "--check", "--quiet"] + paths,
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
 
     if result.returncode == 0:
@@ -62,22 +64,24 @@ def run_black_check(paths: list[str]) -> tuple[bool, str]:
             [sys.executable, "-m", "black", "--check"] + paths,
             capture_output=True,
             text=True,
+            cwd=cwd,
         )
         return False, result_verbose.stderr or result_verbose.stdout
 
 
-def run_isort_check(paths: list[str]) -> tuple[bool, str]:
+def run_isort_check(paths: list[str], cwd: str | None = None) -> tuple[bool, str]:
     """Run isort --check on paths."""
     if not paths:
         return True, ""
 
-    if not check_linter_available("isort"):
+    if not check_linter_available("isort", cwd):
         return True, ""  # Skip if not installed
 
     result = subprocess.run(
         [sys.executable, "-m", "isort", "--check-only", "--quiet"] + paths,
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
 
     if result.returncode == 0:
@@ -88,22 +92,24 @@ def run_isort_check(paths: list[str]) -> tuple[bool, str]:
             [sys.executable, "-m", "isort", "--check-only", "--diff"] + paths,
             capture_output=True,
             text=True,
+            cwd=cwd,
         )
         return False, result_verbose.stdout or result_verbose.stderr
 
 
-def run_ruff_check(paths: list[str]) -> tuple[bool, str]:
+def run_ruff_check(paths: list[str], cwd: str | None = None) -> tuple[bool, str]:
     """Run ruff check on paths."""
     if not paths:
         return True, ""
 
-    if not check_linter_available("ruff"):
+    if not check_linter_available("ruff", cwd):
         return True, ""  # Skip if not installed
 
     result = subprocess.run(
         [sys.executable, "-m", "ruff", "check"] + paths,
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
 
     if result.returncode == 0:
@@ -112,19 +118,20 @@ def run_ruff_check(paths: list[str]) -> tuple[bool, str]:
         return False, result.stdout or result.stderr
 
 
-def run_lint_checks(paths: list[str]) -> LintResult:
+def run_lint_checks(paths: list[str], cwd: str | None = None) -> LintResult:
     """
     Run all lint checks on the given paths.
 
     Args:
         paths: List of file/directory paths to check
+        cwd: Working directory to run linters in (default: current directory)
 
     Returns:
         LintResult with pass/fail status and outputs
     """
-    black_passed, black_output = run_black_check(paths)
-    isort_passed, isort_output = run_isort_check(paths)
-    ruff_passed, ruff_output = run_ruff_check(paths)
+    black_passed, black_output = run_black_check(paths, cwd)
+    isort_passed, isort_output = run_isort_check(paths, cwd)
+    ruff_passed, ruff_output = run_ruff_check(paths, cwd)
 
     return LintResult(
         passed=black_passed and isort_passed and ruff_passed,
@@ -158,15 +165,16 @@ class FixResult:
         return "\n".join(parts) if parts else "No fixes needed"
 
 
-def run_black_fix(paths: list[str]) -> int:
+def run_black_fix(paths: list[str], cwd: str | None = None) -> int:
     """Run black to fix formatting issues."""
-    if not paths or not check_linter_available("black"):
+    if not paths or not check_linter_available("black", cwd):
         return 0
 
     result = subprocess.run(
         [sys.executable, "-m", "black"] + paths,
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
 
     # Count reformatted files from output
@@ -175,9 +183,9 @@ def run_black_fix(paths: list[str]) -> int:
     return count
 
 
-def run_isort_fix(paths: list[str]) -> int:
+def run_isort_fix(paths: list[str], cwd: str | None = None) -> int:
     """Run isort to fix import ordering."""
-    if not paths or not check_linter_available("isort"):
+    if not paths or not check_linter_available("isort", cwd):
         return 0
 
     # First check how many need fixing
@@ -185,6 +193,7 @@ def run_isort_fix(paths: list[str]) -> int:
         [sys.executable, "-m", "isort", "--check-only"] + paths,
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
 
     if check_result.returncode == 0:
@@ -195,6 +204,7 @@ def run_isort_fix(paths: list[str]) -> int:
         [sys.executable, "-m", "isort", "--check-only", "--diff"] + paths,
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
     # Count unique file headers in diff output
     count = diff_result.stdout.count("---")
@@ -204,20 +214,22 @@ def run_isort_fix(paths: list[str]) -> int:
         [sys.executable, "-m", "isort"] + paths,
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
 
     return count
 
 
-def run_ruff_fix(paths: list[str]) -> int:
+def run_ruff_fix(paths: list[str], cwd: str | None = None) -> int:
     """Run ruff --fix to auto-fix linting issues."""
-    if not paths or not check_linter_available("ruff"):
+    if not paths or not check_linter_available("ruff", cwd):
         return 0
 
     result = subprocess.run(
         [sys.executable, "-m", "ruff", "check", "--fix"] + paths,
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
 
     # Parse "Found X errors (Y fixed, Z remaining)"
@@ -231,7 +243,7 @@ def run_ruff_fix(paths: list[str]) -> int:
     return 0
 
 
-def run_lint_fixes(paths: list[str]) -> FixResult:
+def run_lint_fixes(paths: list[str], cwd: str | None = None) -> FixResult:
     """
     Run all lint fixers on the given paths.
 
@@ -240,13 +252,14 @@ def run_lint_fixes(paths: list[str]) -> FixResult:
 
     Args:
         paths: List of file/directory paths to fix
+        cwd: Working directory to run linters in (default: current directory)
 
     Returns:
         FixResult with counts of fixes applied
     """
-    isort_fixed = run_isort_fix(paths)
-    ruff_fixed = run_ruff_fix(paths)
-    black_fixed = run_black_fix(paths)
+    isort_fixed = run_isort_fix(paths, cwd)
+    ruff_fixed = run_ruff_fix(paths, cwd)
+    black_fixed = run_black_fix(paths, cwd)
 
     return FixResult(
         black_fixed=black_fixed,
@@ -255,13 +268,16 @@ def run_lint_fixes(paths: list[str]) -> FixResult:
     )
 
 
-def get_changed_python_files(ref: str | None = None, base: str | None = None) -> list[str]:
+def get_changed_python_files(
+    ref: str | None = None, base: str | None = None, cwd: str | None = None
+) -> list[str]:
     """
     Get list of changed Python files from git diff.
 
     Args:
         ref: Branch or commit to diff. If None, uses staged changes.
         base: Base branch to diff against (default: main)
+        cwd: Working directory to run git in (default: current directory)
 
     Returns:
         List of changed .py file paths
@@ -272,7 +288,7 @@ def get_changed_python_files(ref: str | None = None, base: str | None = None) ->
         base = base or "main"
         cmd = ["git", "diff", f"{base}...{ref}", "--name-only", "--diff-filter=ACMR"]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
 
     if result.returncode != 0:
         return []

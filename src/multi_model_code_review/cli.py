@@ -36,6 +36,13 @@ def cli():
     help="Base branch to diff against (default: main)",
 )
 @click.option(
+    "--repo",
+    "-r",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Repository directory to analyze (default: current directory)",
+)
+@click.option(
     "--spec",
     "-s",
     default=None,
@@ -72,22 +79,22 @@ def cli():
     default=False,
     help="Auto-fix lint issues before model review",
 )
-def review(branch, base, spec, model, output, output_dir, lint, fix_lint):
+def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint):
     """Run code review with multiple models."""
     models = list(model) if model else DEFAULT_MODELS
 
     # Lint fix/check (pre-model gate)
     if fix_lint or lint:
-        py_files = get_changed_python_files(branch, base)
+        py_files = get_changed_python_files(branch, base, cwd=repo)
         if py_files:
             if fix_lint:
                 click.echo(f"Fixing lint issues on {len(py_files)} files...", err=True)
-                fix_result = run_lint_fixes(py_files)
+                fix_result = run_lint_fixes(py_files, cwd=repo)
                 if fix_result.total_fixed > 0:
                     click.echo(fix_result.summary, err=True)
 
             click.echo(f"Running lint checks on {len(py_files)} files...", err=True)
-            lint_result = run_lint_checks(py_files)
+            lint_result = run_lint_checks(py_files, cwd=repo)
             if not lint_result.passed:
                 click.echo("Lint checks failed:", err=True)
                 click.echo(lint_result.summary, err=True)
@@ -105,10 +112,10 @@ def review(branch, base, spec, model, output, output_dir, lint, fix_lint):
     try:
         if branch:
             diff_ref = branch
-            diff_content = get_diff(branch, base)
+            diff_content = get_diff(branch, base, cwd=repo)
         else:
             diff_ref = "staged"
-            diff_content = get_diff()
+            diff_content = get_diff(cwd=repo)
     except RuntimeError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -176,6 +183,13 @@ def review(branch, base, spec, model, output, output_dir, lint, fix_lint):
     help="Base branch to diff against (default: main)",
 )
 @click.option(
+    "--repo",
+    "-r",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Repository directory to analyze (default: current directory)",
+)
+@click.option(
     "--spec",
     "-s",
     default=None,
@@ -205,7 +219,7 @@ def review(branch, base, spec, model, output, output_dir, lint, fix_lint):
     default=False,
     help="Auto-fix lint issues before model review",
 )
-def gate(branch, base, spec, model, output_dir, lint, fix_lint):
+def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint):
     """
     Run review and exit with code based on result.
 
@@ -218,16 +232,16 @@ def gate(branch, base, spec, model, output_dir, lint, fix_lint):
 
     # Lint fix/check (pre-model gate)
     if fix_lint or lint:
-        py_files = get_changed_python_files(branch, base)
+        py_files = get_changed_python_files(branch, base, cwd=repo)
         if py_files:
             if fix_lint:
                 click.echo(f"Fixing lint issues on {len(py_files)} files...", err=True)
-                fix_result = run_lint_fixes(py_files)
+                fix_result = run_lint_fixes(py_files, cwd=repo)
                 if fix_result.total_fixed > 0:
                     click.echo(fix_result.summary, err=True)
 
             click.echo(f"Running lint checks on {len(py_files)} files...", err=True)
-            lint_result = run_lint_checks(py_files)
+            lint_result = run_lint_checks(py_files, cwd=repo)
             if not lint_result.passed:
                 click.echo("Lint checks failed:", err=True)
                 click.echo(lint_result.summary, err=True)
@@ -244,10 +258,10 @@ def gate(branch, base, spec, model, output_dir, lint, fix_lint):
     try:
         if branch:
             diff_ref = branch
-            diff_content = get_diff(branch, base)
+            diff_content = get_diff(branch, base, cwd=repo)
         else:
             diff_ref = "staged"
-            diff_content = get_diff()
+            diff_content = get_diff(cwd=repo)
     except RuntimeError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(2)
@@ -315,12 +329,19 @@ def gate(branch, base, spec, model, output_dir, lint, fix_lint):
     help="Base branch to diff against (default: main)",
 )
 @click.option(
+    "--repo",
+    "-r",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Repository directory to analyze (default: current directory)",
+)
+@click.option(
     "--model",
     "-m",
     multiple=True,
     help="Models to use (default: claude, gemini)",
 )
-def compare(branch, base, model):
+def compare(branch, base, repo, model):
     """Show only disagreements between models."""
     models = list(model) if model else DEFAULT_MODELS
 
@@ -338,10 +359,10 @@ def compare(branch, base, model):
     try:
         if branch:
             diff_ref = branch
-            diff_content = get_diff(branch, base)
+            diff_content = get_diff(branch, base, cwd=repo)
         else:
             diff_ref = "staged"
-            diff_content = get_diff()
+            diff_content = get_diff(cwd=repo)
     except RuntimeError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -390,12 +411,19 @@ def compare(branch, base, model):
     help="Base branch to diff against (default: main)",
 )
 @click.option(
+    "--repo",
+    "-r",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Repository directory to analyze (default: current directory)",
+)
+@click.option(
     "--model",
     "-m",
     default="claude",
     help="Model to use (default: claude)",
 )
-def check_spec(spec_file, branch, base, model):
+def check_spec(spec_file, branch, base, repo, model):
     """Check code changes against a specification file."""
     # Preflight check
     missing = preflight_check([model])
@@ -406,9 +434,9 @@ def check_spec(spec_file, branch, base, model):
     # Get diff
     try:
         if branch:
-            diff_content = get_diff(branch, base)
+            diff_content = get_diff(branch, base, cwd=repo)
         else:
-            diff_content = get_diff()
+            diff_content = get_diff(cwd=repo)
     except RuntimeError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -447,14 +475,21 @@ def check_spec(spec_file, branch, base, model):
     help="Base branch to diff against (default: main)",
 )
 @click.option(
+    "--repo",
+    "-r",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Repository directory to analyze (default: current directory)",
+)
+@click.option(
     "--fix",
     is_flag=True,
     default=False,
     help="Auto-fix lint issues (black, isort, ruff --fix)",
 )
-def lint(branch, base, fix):
+def lint(branch, base, repo, fix):
     """Run lint checks (black, isort, ruff) on changed files."""
-    py_files = get_changed_python_files(branch, base)
+    py_files = get_changed_python_files(branch, base, cwd=repo)
 
     if not py_files:
         click.echo("No Python files changed.")
@@ -466,14 +501,14 @@ def lint(branch, base, fix):
     click.echo()
 
     if fix:
-        fix_result = run_lint_fixes(py_files)
+        fix_result = run_lint_fixes(py_files, cwd=repo)
         if fix_result.total_fixed > 0:
             click.echo("Fixes applied:")
             click.echo(fix_result.summary)
             click.echo()
 
         # Re-check after fixing
-        lint_result = run_lint_checks(py_files)
+        lint_result = run_lint_checks(py_files, cwd=repo)
         if lint_result.passed:
             click.echo("All lint checks now pass!")
             sys.exit(0)
@@ -482,7 +517,7 @@ def lint(branch, base, fix):
             click.echo(lint_result.summary)
             sys.exit(1)
     else:
-        lint_result = run_lint_checks(py_files)
+        lint_result = run_lint_checks(py_files, cwd=repo)
 
         if lint_result.passed:
             click.echo("All lint checks passed!")
