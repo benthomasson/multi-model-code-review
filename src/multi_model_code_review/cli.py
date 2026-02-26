@@ -14,7 +14,14 @@ from .lint import get_changed_python_files, run_lint_checks, run_lint_fixes
 from .observations import run_observations
 from .prompts import build_observe_prompt, build_review_prompt, build_spec_check_prompt
 from .report import format_aggregate_review, format_summary
-from .reviewer import observe_with_model, preflight_check, review_with_model, review_with_models
+from .reviewer import (
+    observe_with_model,
+    parse_observe_response,
+    preflight_check,
+    review_with_model,
+    review_with_models,
+    run_model,
+)
 
 DEFAULT_MODELS = ["claude", "gemini"]
 
@@ -774,30 +781,59 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
     observe_model = models[0]
     all_observations = {}
 
+    # Create output_dir early so we can save iteration artifacts
+    os.makedirs(output_dir, exist_ok=True)
+
     for iteration in range(1, max_iterations + 1):
         click.echo(f"\n=== Iteration {iteration}/{max_iterations} ===", err=True)
+        iter_prefix = f"{iteration:02d}"
 
         # Observe pass
         click.echo(f"Gathering observations with {observe_model}...", err=True)
-        requested_obs = asyncio.run(observe_with_model(observe_model, diff_content))
+        observe_prompt = build_observe_prompt(diff_content)
+
+        # Save observe prompt
+        with open(os.path.join(output_dir, f"{iter_prefix}-observe-prompt.txt"), "w") as f:
+            f.write(observe_prompt)
+
+        # Run observe model and save response
+        observe_response = asyncio.run(run_model(observe_model, observe_prompt))
+        with open(os.path.join(output_dir, f"{iter_prefix}-observe-response.txt"), "w") as f:
+            f.write(observe_response)
+
+        requested_obs = parse_observe_response(observe_response)
 
         if requested_obs:
             click.echo(f"Requested {len(requested_obs)} observation(s):", err=True)
             for obs in requested_obs:
                 click.echo(f"  - {obs.get('tool')}: {obs.get('name')}", err=True)
 
-            # Run observations
+            # Run observations and save results
             click.echo("Running observations...", err=True)
             new_obs = asyncio.run(run_observations(requested_obs, repo))
             all_observations.update(new_obs)
+
+            with open(os.path.join(output_dir, f"{iter_prefix}-observations.json"), "w") as f:
+                json.dump(new_obs, f, indent=2, default=str)
+
             click.echo(f"Total observations: {len(all_observations)}", err=True)
         else:
             click.echo("No new observations requested.", err=True)
 
         # Review pass
         click.echo(f"Running review with {', '.join(models)}...", err=True)
-        prompt = build_review_prompt(diff_content, spec_content, observations=all_observations if all_observations else None)
-        reviews = asyncio.run(review_with_models(models, prompt, observations=all_observations if all_observations else None))
+        review_prompt = build_review_prompt(diff_content, spec_content, observations=all_observations if all_observations else None)
+
+        # Save review prompt
+        with open(os.path.join(output_dir, f"{iter_prefix}-review-prompt.txt"), "w") as f:
+            f.write(review_prompt)
+
+        reviews = asyncio.run(review_with_models(models, review_prompt, observations=all_observations if all_observations else None))
+
+        # Save per-model responses
+        for model_review in reviews:
+            with open(os.path.join(output_dir, f"{iter_prefix}-{model_review.model}-response.txt"), "w") as f:
+                f.write(model_review.raw_response)
 
         # Check if any model requested more observations
         more_obs_requested = []
@@ -812,8 +848,6 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
 
         if iteration < max_iterations:
             click.echo(f"Models requested {len(more_obs_requested)} more observation(s), continuing...", err=True)
-            # Update diff_content with observation results for next observe pass
-            # (The observe prompt will see the same diff, but reviewer already has context)
         else:
             click.echo(f"Max iterations reached. Finalizing review.", err=True)
 
@@ -825,26 +859,18 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
     else:
         report = format_summary(result)
 
-    # Save to files (output_dir always has a default now)
-    os.makedirs(output_dir, exist_ok=True)
-
+    # Save final report (output_dir already created in loop)
     report_path = os.path.join(output_dir, "report.md")
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(report)
     click.echo(f"Saved report to {report_path}", err=True)
 
-    # Save observations
+    # Save aggregated observations
     if all_observations:
         obs_path = os.path.join(output_dir, "observations.json")
         with open(obs_path, "w", encoding="utf-8") as f:
             json.dump(all_observations, f, indent=2, default=str)
         click.echo(f"Saved observations to {obs_path}", err=True)
-
-    for model_review in reviews:
-        raw_path = os.path.join(output_dir, f"{model_review.model}-raw.txt")
-        with open(raw_path, "w", encoding="utf-8") as f:
-            f.write(model_review.raw_response)
-        click.echo(f"Saved {model_review.model} raw response to {raw_path}", err=True)
 
     click.echo(report)
 
