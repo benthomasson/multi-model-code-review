@@ -659,6 +659,184 @@ def models():
         click.echo(f"  {name}: {cmd[0]} [{status}]")
 
 
+@cli.command()
+@click.option(
+    "--branch",
+    "-b",
+    default=None,
+    help="Branch to review (default: staged changes)",
+)
+@click.option(
+    "--base",
+    default="main",
+    help="Base branch to diff against (default: main)",
+)
+@click.option(
+    "--repo",
+    "-r",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Repository directory to analyze (default: current directory)",
+)
+@click.option(
+    "--spec",
+    "-s",
+    default=None,
+    help="Path to spec file for compliance checking",
+)
+@click.option(
+    "--model",
+    "-m",
+    multiple=True,
+    help="Models to use (default: claude, gemini)",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Choice(["full", "summary"]),
+    default="full",
+    help="Output format (default: full)",
+)
+@click.option(
+    "--output-dir",
+    "-d",
+    type=click.Path(),
+    default=None,
+    help="Directory to save outputs (report.md + per-model raw responses)",
+)
+@click.option(
+    "--max-iterations",
+    "-i",
+    default=3,
+    help="Maximum observe/review iterations (default: 3)",
+)
+def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
+    """
+    Run automated observe/review loop.
+
+    Automatically gathers observations, runs them, and reviews with context.
+    If the review requests additional observations, repeats up to --max-iterations times.
+
+    This is the recommended way to run code review for best results.
+    """
+    from .reviewer import parse_observations
+
+    models = list(model) if model else DEFAULT_MODELS
+
+    # Preflight check
+    missing = preflight_check(models)
+    if missing:
+        click.echo(f"Error: Missing CLI tools: {', '.join(missing)}", err=True)
+        sys.exit(1)
+
+    # Get diff
+    try:
+        if branch:
+            diff_ref = branch
+            diff_content = get_diff(branch, base, cwd=repo)
+        else:
+            diff_ref = "staged"
+            diff_content = get_diff(cwd=repo)
+    except RuntimeError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    if not diff_content.strip():
+        click.echo("No changes to review.", err=True)
+        sys.exit(0)
+
+    # Read spec if provided
+    spec_content = None
+    if spec:
+        spec_content = read_file_content(spec)
+        if spec_content is None:
+            click.echo(f"Warning: Spec file not found: {spec}", err=True)
+
+    # Use first model for observation gathering
+    observe_model = models[0]
+    all_observations = {}
+
+    for iteration in range(1, max_iterations + 1):
+        click.echo(f"\n=== Iteration {iteration}/{max_iterations} ===", err=True)
+
+        # Observe pass
+        click.echo(f"Gathering observations with {observe_model}...", err=True)
+        requested_obs = asyncio.run(observe_with_model(observe_model, diff_content))
+
+        if requested_obs:
+            click.echo(f"Requested {len(requested_obs)} observation(s):", err=True)
+            for obs in requested_obs:
+                click.echo(f"  - {obs.get('tool')}: {obs.get('name')}", err=True)
+
+            if repo:
+                # Run observations
+                click.echo("Running observations...", err=True)
+                new_obs = asyncio.run(run_observations(requested_obs, repo))
+                all_observations.update(new_obs)
+                click.echo(f"Total observations: {len(all_observations)}", err=True)
+            else:
+                click.echo("Warning: --repo not specified, cannot run observations", err=True)
+        else:
+            click.echo("No new observations requested.", err=True)
+
+        # Review pass
+        click.echo(f"Running review with {', '.join(models)}...", err=True)
+        prompt = build_review_prompt(diff_content, spec_content, observations=all_observations if all_observations else None)
+        reviews = asyncio.run(review_with_models(models, prompt, observations=all_observations if all_observations else None))
+
+        # Check if any model requested more observations
+        more_obs_requested = []
+        for review_result in reviews:
+            obs_requests = parse_observations(review_result.raw_response)
+            if obs_requests:
+                more_obs_requested.extend(obs_requests)
+
+        if not more_obs_requested:
+            click.echo("No additional observations requested. Review complete.", err=True)
+            break
+
+        if iteration < max_iterations:
+            click.echo(f"Models requested {len(more_obs_requested)} more observation(s), continuing...", err=True)
+            # Update diff_content with observation results for next observe pass
+            # (The observe prompt will see the same diff, but reviewer already has context)
+        else:
+            click.echo(f"Max iterations reached. Finalizing review.", err=True)
+
+    # Aggregate and output
+    result = aggregate_reviews(diff_ref, reviews, spec)
+
+    if output == "full":
+        report = format_aggregate_review(result)
+    else:
+        report = format_summary(result)
+
+    # Save to files if output-dir specified
+    if output_dir:
+        import os
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        report_path = os.path.join(output_dir, "report.md")
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(report)
+        click.echo(f"Saved report to {report_path}", err=True)
+
+        # Save observations
+        if all_observations:
+            obs_path = os.path.join(output_dir, "observations.json")
+            with open(obs_path, "w", encoding="utf-8") as f:
+                json.dump(all_observations, f, indent=2, default=str)
+            click.echo(f"Saved observations to {obs_path}", err=True)
+
+        for model_review in reviews:
+            raw_path = os.path.join(output_dir, f"{model_review.model}-raw.txt")
+            with open(raw_path, "w", encoding="utf-8") as f:
+                f.write(model_review.raw_response)
+            click.echo(f"Saved {model_review.model} raw response to {raw_path}", err=True)
+
+    click.echo(report)
+
+
 @cli.command("install-skill")
 @click.option(
     "--skill-dir",
