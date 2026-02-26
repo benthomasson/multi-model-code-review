@@ -129,6 +129,127 @@ def run_lint_checks(paths: list[str]) -> LintResult:
     )
 
 
+@dataclass
+class FixResult:
+    """Result of running lint fixes."""
+
+    black_fixed: int = 0
+    isort_fixed: int = 0
+    ruff_fixed: int = 0
+
+    @property
+    def total_fixed(self) -> int:
+        return self.black_fixed + self.isort_fixed + self.ruff_fixed
+
+    @property
+    def summary(self) -> str:
+        parts = []
+        if self.black_fixed:
+            parts.append(f"black: {self.black_fixed} files reformatted")
+        if self.isort_fixed:
+            parts.append(f"isort: {self.isort_fixed} files fixed")
+        if self.ruff_fixed:
+            parts.append(f"ruff: {self.ruff_fixed} fixes applied")
+        return "\n".join(parts) if parts else "No fixes needed"
+
+
+def run_black_fix(paths: list[str]) -> int:
+    """Run black to fix formatting issues."""
+    if not paths or not check_linter_available("black"):
+        return 0
+
+    result = subprocess.run(
+        ["black"] + paths,
+        capture_output=True,
+        text=True,
+    )
+
+    # Count reformatted files from output
+    output = result.stderr or result.stdout
+    count = output.count("reformatted")
+    return count
+
+
+def run_isort_fix(paths: list[str]) -> int:
+    """Run isort to fix import ordering."""
+    if not paths or not check_linter_available("isort"):
+        return 0
+
+    # First check how many need fixing
+    check_result = subprocess.run(
+        ["isort", "--check-only"] + paths,
+        capture_output=True,
+        text=True,
+    )
+
+    if check_result.returncode == 0:
+        return 0
+
+    # Count files that would be changed
+    diff_result = subprocess.run(
+        ["isort", "--check-only", "--diff"] + paths,
+        capture_output=True,
+        text=True,
+    )
+    # Count unique file headers in diff output
+    count = diff_result.stdout.count("---")
+
+    # Now fix them
+    subprocess.run(
+        ["isort"] + paths,
+        capture_output=True,
+        text=True,
+    )
+
+    return count
+
+
+def run_ruff_fix(paths: list[str]) -> int:
+    """Run ruff --fix to auto-fix linting issues."""
+    if not paths or not check_linter_available("ruff"):
+        return 0
+
+    result = subprocess.run(
+        ["ruff", "check", "--fix"] + paths,
+        capture_output=True,
+        text=True,
+    )
+
+    # Parse "Found X errors (Y fixed, Z remaining)"
+    output = result.stdout or result.stderr
+    if "fixed" in output.lower():
+        import re
+
+        match = re.search(r"(\d+) fixed", output)
+        if match:
+            return int(match.group(1))
+    return 0
+
+
+def run_lint_fixes(paths: list[str]) -> FixResult:
+    """
+    Run all lint fixers on the given paths.
+
+    Order matters: isort first (import ordering), then black (formatting),
+    then ruff (remaining auto-fixable issues).
+
+    Args:
+        paths: List of file/directory paths to fix
+
+    Returns:
+        FixResult with counts of fixes applied
+    """
+    isort_fixed = run_isort_fix(paths)
+    black_fixed = run_black_fix(paths)
+    ruff_fixed = run_ruff_fix(paths)
+
+    return FixResult(
+        black_fixed=black_fixed,
+        isort_fixed=isort_fixed,
+        ruff_fixed=ruff_fixed,
+    )
+
+
 def get_changed_python_files(ref: str | None = None, base: str | None = None) -> list[str]:
     """
     Get list of changed Python files from git diff.

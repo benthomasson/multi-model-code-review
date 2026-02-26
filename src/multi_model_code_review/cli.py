@@ -8,7 +8,7 @@ import click
 from . import Verdict
 from .aggregator import aggregate_reviews
 from .git_utils import get_diff, read_file_content
-from .lint import get_changed_python_files, run_lint_checks
+from .lint import get_changed_python_files, run_lint_checks, run_lint_fixes
 from .prompts import build_review_prompt, build_spec_check_prompt
 from .report import format_aggregate_review, format_summary
 from .reviewer import preflight_check, review_with_model, review_with_models
@@ -66,14 +66,26 @@ def cli():
     default=False,
     help="Run lint checks (black, isort, ruff) before model review",
 )
-def review(branch, base, spec, model, output, output_dir, lint):
+@click.option(
+    "--fix-lint",
+    is_flag=True,
+    default=False,
+    help="Auto-fix lint issues before model review",
+)
+def review(branch, base, spec, model, output, output_dir, lint, fix_lint):
     """Run code review with multiple models."""
     models = list(model) if model else DEFAULT_MODELS
 
-    # Lint check (pre-model gate)
-    if lint:
+    # Lint fix/check (pre-model gate)
+    if fix_lint or lint:
         py_files = get_changed_python_files(branch, base)
         if py_files:
+            if fix_lint:
+                click.echo(f"Fixing lint issues on {len(py_files)} files...", err=True)
+                fix_result = run_lint_fixes(py_files)
+                if fix_result.total_fixed > 0:
+                    click.echo(fix_result.summary, err=True)
+
             click.echo(f"Running lint checks on {len(py_files)} files...", err=True)
             lint_result = run_lint_checks(py_files)
             if not lint_result.passed:
@@ -187,7 +199,13 @@ def review(branch, base, spec, model, output, output_dir, lint):
     default=False,
     help="Run lint checks (black, isort, ruff) before model review",
 )
-def gate(branch, base, spec, model, output_dir, lint):
+@click.option(
+    "--fix-lint",
+    is_flag=True,
+    default=False,
+    help="Auto-fix lint issues before model review",
+)
+def gate(branch, base, spec, model, output_dir, lint, fix_lint):
     """
     Run review and exit with code based on result.
 
@@ -198,10 +216,16 @@ def gate(branch, base, spec, model, output_dir, lint):
     """
     models = list(model) if model else DEFAULT_MODELS
 
-    # Lint check (pre-model gate)
-    if lint:
+    # Lint fix/check (pre-model gate)
+    if fix_lint or lint:
         py_files = get_changed_python_files(branch, base)
         if py_files:
+            if fix_lint:
+                click.echo(f"Fixing lint issues on {len(py_files)} files...", err=True)
+                fix_result = run_lint_fixes(py_files)
+                if fix_result.total_fixed > 0:
+                    click.echo(fix_result.summary, err=True)
+
             click.echo(f"Running lint checks on {len(py_files)} files...", err=True)
             lint_result = run_lint_checks(py_files)
             if not lint_result.passed:
@@ -422,7 +446,13 @@ def check_spec(spec_file, branch, base, model):
     default="main",
     help="Base branch to diff against (default: main)",
 )
-def lint(branch, base):
+@click.option(
+    "--fix",
+    is_flag=True,
+    default=False,
+    help="Auto-fix lint issues (black, isort, ruff --fix)",
+)
+def lint(branch, base, fix):
     """Run lint checks (black, isort, ruff) on changed files."""
     py_files = get_changed_python_files(branch, base)
 
@@ -430,20 +460,38 @@ def lint(branch, base):
         click.echo("No Python files changed.")
         sys.exit(0)
 
-    click.echo(f"Checking {len(py_files)} files:")
+    click.echo(f"{'Fixing' if fix else 'Checking'} {len(py_files)} files:")
     for f in py_files:
         click.echo(f"  {f}")
     click.echo()
 
-    lint_result = run_lint_checks(py_files)
+    if fix:
+        fix_result = run_lint_fixes(py_files)
+        if fix_result.total_fixed > 0:
+            click.echo("Fixes applied:")
+            click.echo(fix_result.summary)
+            click.echo()
 
-    if lint_result.passed:
-        click.echo("All lint checks passed!")
-        sys.exit(0)
+        # Re-check after fixing
+        lint_result = run_lint_checks(py_files)
+        if lint_result.passed:
+            click.echo("All lint checks now pass!")
+            sys.exit(0)
+        else:
+            click.echo("Some issues remain (not auto-fixable):\n")
+            click.echo(lint_result.summary)
+            sys.exit(1)
     else:
-        click.echo("Lint checks failed:\n")
-        click.echo(lint_result.summary)
-        sys.exit(1)
+        lint_result = run_lint_checks(py_files)
+
+        if lint_result.passed:
+            click.echo("All lint checks passed!")
+            sys.exit(0)
+        else:
+            click.echo("Lint checks failed:\n")
+            click.echo(lint_result.summary)
+            click.echo("\nRun with --fix to auto-fix issues.")
+            sys.exit(1)
 
 
 @cli.command()
