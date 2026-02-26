@@ -20,12 +20,10 @@ def get_diff(ref: str | None = None, base: str | None = None) -> str:
     if ref is None:
         # Staged changes
         cmd = ["git", "diff", "--staged"]
-    elif base:
-        # Diff between base and ref
-        cmd = ["git", "diff", f"{base}...{ref}"]
     else:
-        # Diff between main and ref
-        cmd = ["git", "diff", f"main...{ref}"]
+        # Diff between base and ref (base defaults to main in CLI)
+        base = base or "main"
+        cmd = ["git", "diff", f"{base}...{ref}"]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
 

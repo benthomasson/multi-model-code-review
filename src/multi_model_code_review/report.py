@@ -3,8 +3,8 @@
 from . import AggregateReview, ModelReview, Verdict
 
 
-def format_verdict_emoji(verdict: Verdict) -> str:
-    """Get emoji for verdict."""
+def format_verdict_badge(verdict: Verdict) -> str:
+    """Get text badge for verdict."""
     if verdict == Verdict.PASS:
         return "[PASS]"
     elif verdict == Verdict.CONCERN:
@@ -16,7 +16,7 @@ def format_verdict_emoji(verdict: Verdict) -> str:
 def format_model_review(review: ModelReview) -> str:
     """Format a single model's review."""
     lines = [
-        f"## {review.model} {format_verdict_emoji(review.gate)}",
+        f"## {review.model} {format_verdict_badge(review.gate)}",
         "",
     ]
 
@@ -80,7 +80,7 @@ def format_aggregate_review(review: AggregateReview) -> str:
         "",
         f"**Branch:** {review.diff_ref}",
         f"**Models:** {', '.join(review.models)}",
-        f"**Gate:** {format_verdict_emoji(review.gate)} {review.gate.value}",
+        f"**Gate:** {format_verdict_badge(review.gate)} {review.gate.value}",
     ]
 
     if review.spec_file:

@@ -10,7 +10,7 @@ from .aggregator import aggregate_reviews
 from .git_utils import get_diff, read_file_content
 from .prompts import build_review_prompt, build_spec_check_prompt
 from .report import format_aggregate_review, format_summary
-from .reviewer import preflight_check, review_with_models
+from .reviewer import preflight_check, review_with_model, review_with_models
 
 DEFAULT_MODELS = ["claude", "gemini"]
 
@@ -303,7 +303,6 @@ def check_spec(spec_file, branch, base, model):
 
     # Run check
     click.echo(f"Checking spec compliance with {model}...", err=True)
-    from .reviewer import review_with_model
     result = asyncio.run(review_with_model(model, prompt))
 
     # Output raw response for spec check (different format than review)
