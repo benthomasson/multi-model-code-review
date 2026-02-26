@@ -2,42 +2,143 @@
 
 AI-first code review using multiple models to surface issues before human review.
 
-## Problem
+## Installation
 
-As AI-assisted development scales, human reviewers become the bottleneck. MRs pile up waiting for human attention while obvious issues could be caught automatically.
+```bash
+# Run directly with uvx (no install needed)
+uvx --from "git+https://github.com/benthomasson/multi-model-code-review" code-review --help
 
-## Solution
+# Or install as a tool
+uv tool install "git+https://github.com/benthomasson/multi-model-code-review"
+```
 
-Run code reviews through multiple AI models (Claude, Gemini, etc.) to:
-- Catch issues before human review
-- Surface inter-model disagreements as signals for human attention
-- Validate implementation against specs
-- Provide a CI gate for automated quality control
+## Quick Start
 
-## Design Principles
+```bash
+# Review a branch (recommended - uses observe/review loop)
+code-review auto -b feature-branch
 
-Based on [multi-model-review](https://github.com/benthomasson/multi-model-review) for research papers:
+# Review staged changes
+code-review auto
+```
 
-1. **Multi-model consensus** - If models disagree, humans should look closer
-2. **Structured verdicts** - PASS / CONCERN / BLOCK per change
-3. **Spec-aware** - Validate implementation against specifications
-4. **CI-ready** - Binary gate (exit 0 = PASS, exit 2 = BLOCK)
-5. **Show don't tell** - Check integration, not just interfaces
+## Why Multi-Model?
+
+As AI-assisted development scales, human reviewers become the bottleneck. This tool runs reviews through multiple AI models (Claude, Gemini) to:
+
+- **Catch issues** before human review
+- **Surface disagreements** between models as signals for attention
+- **Validate against specs** for compliance checking
+- **Provide CI gates** for automated quality control
+
+If models disagree, humans should look closer.
 
 ## Commands
 
+### auto (Recommended)
+
+Run the full observe → review loop with automatic context gathering.
+
 ```bash
-# Full review with all verdicts
-code-review review --spec spec.md --diff branch-name
+code-review auto -b feature-branch
+code-review auto -b feature-branch --base main
+code-review auto -b feature-branch --max-iterations 3
+```
 
-# Highlight model disagreements
-code-review compare --spec spec.md --diff branch-name
+This:
+1. Auto-looks up test coverage from `coverage-map.json` (if present)
+2. Gathers observations (exception hierarchies, call graphs, etc.)
+3. Runs review with observations as context
+4. Saves all artifacts to `reviews/<branch>/<timestamp>/`
 
-# CI gate
-code-review gate --spec spec.md --diff branch-name
+### review
 
-# Check spec compliance
-code-review check-spec --spec spec.md --diff branch-name
+Run a single-pass review without observation gathering.
+
+```bash
+code-review review -b feature-branch
+code-review review -b feature-branch --spec spec.md
+code-review review --observations obs.json  # With pre-gathered observations
+```
+
+### observe
+
+Gather observations without running the review (for debugging).
+
+```bash
+code-review observe -b feature-branch -o observations.json
+```
+
+### gate
+
+CI-friendly command with exit codes.
+
+```bash
+code-review gate -b feature-branch
+# Exit 0 = PASS, Exit 1 = CONCERN, Exit 2 = BLOCK
+```
+
+### lint
+
+Run lint checks on changed files.
+
+```bash
+code-review lint -b feature-branch
+code-review lint -b feature-branch --fix
+```
+
+### compare
+
+Show only disagreements between models.
+
+```bash
+code-review compare -b feature-branch
+```
+
+### check-spec
+
+Validate implementation against a specification.
+
+```bash
+code-review check-spec spec.md -b feature-branch
+```
+
+## Observation Tools
+
+The review system can request additional context via observation tools:
+
+| Tool | Purpose |
+|------|---------|
+| `exception_hierarchy` | Show exception MRO and subclasses |
+| `raises_analysis` | What exceptions a function raises |
+| `call_graph` | What a function calls |
+| `find_usages` | Where a symbol is used |
+| `git_blame` | Who changed specific lines |
+| `test_coverage` | Find tests for a file |
+| `coverage_map_tests` | Find tests from coverage-map.json |
+| `coverage_map_files` | Find files covered by tests |
+| `file_imports` | Extract imports from a file |
+| `project_dependencies` | Get pyproject.toml/requirements.txt |
+
+## Coverage Map Integration
+
+If you generate a `coverage-map.json` with [coverage-map](https://github.com/benthomasson/coverage-map), reviews automatically include test coverage:
+
+```bash
+# Generate coverage map (one-time, or after test changes)
+uvx --from "git+https://github.com/benthomasson/coverage-map" \
+  coverage-map collect --source src --tests tests
+
+# Run review (auto-detects coverage-map.json)
+code-review auto -b feature-branch
+```
+
+Output:
+```
+Auto-lookup: 2 Python file(s) changed
+  src/auth/client.py: 13 tests
+  src/utils/logger.py: 91 tests
+Auto-lookup found tests for 2 file(s)
 ```
 
 ## Review Dimensions
@@ -47,28 +148,28 @@ Each change is assessed on multiple axes:
 | Dimension | Verdicts |
 |-----------|----------|
 | Correctness | VALID / QUESTIONABLE / BROKEN |
-| Spec Compliance | MEETS / PARTIAL / VIOLATES |
+| Spec Compliance | MEETS / PARTIAL / VIOLATES / N/A |
 | Test Coverage | COVERED / PARTIAL / UNTESTED |
-| Security | SAFE / REVIEW / VULNERABLE |
 | Integration | WIRED / PARTIAL / MISSING |
 
 ## Output Example
 
 ```
-## Review: feat/complexity-router
+## Review: feat/oauth-retry
 
-### src/workflow/complexity_router.py (NEW)
+### src/auth/client.py
 VERDICT: PASS
 CORRECTNESS: VALID
-SPEC_COMPLIANCE: MEETS
 TEST_COVERAGE: COVERED
-REASONING: Implementation matches spec. 47 tests cover all methods.
+REASONING: Retry logic correctly handles OSError and TransportError.
+           13 tests verify the behavior.
 
-### langflow_components/agentic_planner.py
+### src/utils/logger.py
 VERDICT: CONCERN
 CORRECTNESS: VALID
 INTEGRATION: PARTIAL
-REASONING: tier_config param added but not wired to caller.
+REASONING: New log_with_context() added but not called from client.py.
+
 ---
 
 ## Model Agreement
@@ -76,26 +177,43 @@ REASONING: tier_config param added but not wired to caller.
 - gemini: 7P / 2C / 0B
 
 ## Disagreements
-- langflow_components/agentic_planner.py: claude=PASS, gemini=CONCERN
+- src/utils/logger.py: claude=PASS, gemini=CONCERN
 
-GATE: PASS (no BLOCKs)
+GATE: CONCERN (no BLOCKs)
 ```
 
-## Installation
+## Output Directory
 
-```bash
-uv tool install git+https://github.com/benthomasson/multi-model-code-review
+The `auto` command saves artifacts to `reviews/<branch>/<timestamp>/`:
+
+```
+reviews/feat-oauth-retry/2026-02-26_17-36-02/
+├── 00-auto-coverage.json    # Auto-looked up coverage
+├── 01-observe-prompt.txt    # Observation prompt
+├── 01-observe-response.txt  # Model's observation requests
+├── 01-observations.json     # Observation results
+├── 01-review-prompt.txt     # Review prompt
+├── 01-claude-response.txt   # Claude's review
+├── 01-gemini-response.txt   # Gemini's review
+├── observations.json        # All observations combined
+└── report.md                # Final report
 ```
 
 ## Requirements
 
+- Python 3.11+
 - `claude` CLI installed and authenticated
 - `gemini` CLI installed and authenticated
 
+Check availability:
+```bash
+code-review models
+```
+
 ## Related
 
-- [multi-model-review](https://github.com/benthomasson/multi-model-review) - Paper review (this tool's inspiration)
-- [Show, Don't Tell for AI](https://benthomasson.com/ai/collaboration/ftl2/show-dont-tell-ai/) - Design principle
+- [coverage-map](https://github.com/benthomasson/coverage-map) - Map source files to tests
+- [multi-model-review](https://github.com/benthomasson/multi-model-review) - Paper review (inspiration)
 
 ## License
 
