@@ -202,7 +202,7 @@ def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint, 
     "--repo",
     "-r",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    default=None,
+    default=".",
     help="Repository directory to analyze (default: current directory)",
 )
 @click.option(
@@ -267,16 +267,14 @@ def observe(branch, base, repo, model, output, run):
         for obs in requested_obs:
             click.echo(f"  - {obs.get('tool')}: {obs.get('name')}", err=True)
 
-        if run and repo:
+        if run:
             # Run the observations
             click.echo("Running observations...", err=True)
             result = asyncio.run(run_observations(requested_obs, repo))
             click.echo(f"Completed {len(result)} observation(s)", err=True)
         else:
-            # Just output the requests
+            # Just output the requests (--no-run)
             result = {"_requests": requested_obs, "_results": {}}
-            if not repo:
-                click.echo("Warning: --repo not specified, cannot run observations", err=True)
 
     # Output
     output_json = json.dumps(result, indent=2, default=str)
@@ -675,7 +673,7 @@ def models():
     "--repo",
     "-r",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
-    default=None,
+    default=".",
     help="Repository directory to analyze (default: current directory)",
 )
 @click.option(
@@ -768,14 +766,11 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
             for obs in requested_obs:
                 click.echo(f"  - {obs.get('tool')}: {obs.get('name')}", err=True)
 
-            if repo:
-                # Run observations
-                click.echo("Running observations...", err=True)
-                new_obs = asyncio.run(run_observations(requested_obs, repo))
-                all_observations.update(new_obs)
-                click.echo(f"Total observations: {len(all_observations)}", err=True)
-            else:
-                click.echo("Warning: --repo not specified, cannot run observations", err=True)
+            # Run observations
+            click.echo("Running observations...", err=True)
+            new_obs = asyncio.run(run_observations(requested_obs, repo))
+            all_observations.update(new_obs)
+            click.echo(f"Total observations: {len(all_observations)}", err=True)
         else:
             click.echo("No new observations requested.", err=True)
 
