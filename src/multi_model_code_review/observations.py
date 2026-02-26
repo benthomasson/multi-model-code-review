@@ -61,9 +61,85 @@ async def exception_hierarchy(class_name: str, repo_path: str | None = None) -> 
         return {"error": str(e), "class": class_name}
 
 
+def _get_exception_name(exc_node: ast.expr) -> str | None:
+    """Extract exception name from a raise or except node."""
+    if isinstance(exc_node, ast.Call):
+        if isinstance(exc_node.func, ast.Name):
+            return exc_node.func.id
+        elif isinstance(exc_node.func, ast.Attribute):
+            return exc_node.func.attr
+    elif isinstance(exc_node, ast.Name):
+        return exc_node.id
+    return None
+
+
+def _get_caught_exceptions(handlers: list[ast.ExceptHandler]) -> set[str]:
+    """Get the set of exception names caught by handlers."""
+    caught: set[str] = set()
+    for handler in handlers:
+        if handler.type is None:
+            # Bare except catches everything
+            caught.add("*")
+        elif isinstance(handler.type, ast.Name):
+            caught.add(handler.type.id)
+        elif isinstance(handler.type, ast.Tuple):
+            for elt in handler.type.elts:
+                if isinstance(elt, ast.Name):
+                    caught.add(elt.id)
+    return caught
+
+
+class _RaisesVisitor(ast.NodeVisitor):
+    """Visitor that tracks raises not caught by local try/except."""
+
+    def __init__(self):
+        self.raises: list[str] = []
+        self.calls: list[str] = []
+        self.caught_stack: list[set[str]] = []
+
+    def visit_Try(self, node: ast.Try):
+        caught = _get_caught_exceptions(node.handlers)
+        self.caught_stack.append(caught)
+        for child in node.body:
+            self.visit(child)
+        self.caught_stack.pop()
+        # Visit else and finalbody without the caught context
+        for child in node.orelse:
+            self.visit(child)
+        for child in node.finalbody:
+            self.visit(child)
+        # Visit handlers themselves
+        for handler in node.handlers:
+            for child in handler.body:
+                self.visit(child)
+
+    def visit_Raise(self, node: ast.Raise):
+        if node.exc:
+            exc_name = _get_exception_name(node.exc)
+            if exc_name:
+                # Check if caught by any enclosing try/except
+                is_caught = False
+                for caught in self.caught_stack:
+                    if "*" in caught or exc_name in caught or "Exception" in caught or "BaseException" in caught:
+                        is_caught = True
+                        break
+                if not is_caught:
+                    self.raises.append(exc_name)
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call):
+        if isinstance(node.func, ast.Name):
+            self.calls.append(node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            self.calls.append(node.func.attr)
+        self.generic_visit(node)
+
+
 async def raises_analysis(file_path: str, function_name: str, repo_path: str | None = None) -> dict[str, Any]:
     """
     Static analysis of what exceptions a function might raise.
+
+    Ignores exceptions that are caught by local try/except blocks.
 
     Args:
         file_path: Path to the Python file (relative to repo_path or absolute)
@@ -82,37 +158,25 @@ async def raises_analysis(file_path: str, function_name: str, repo_path: str | N
         source = full_path.read_text()
         tree = ast.parse(source)
 
-        raises: list[str] = []
-        calls: list[str] = []
-
         # Find the function
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if node.name == function_name:
-                    # Find all raise statements
-                    for child in ast.walk(node):
-                        if isinstance(child, ast.Raise):
-                            if child.exc:
-                                if isinstance(child.exc, ast.Call):
-                                    if isinstance(child.exc.func, ast.Name):
-                                        raises.append(child.exc.func.id)
-                                    elif isinstance(child.exc.func, ast.Attribute):
-                                        raises.append(child.exc.func.attr)
-                                elif isinstance(child.exc, ast.Name):
-                                    raises.append(child.exc.id)
-
-                        # Find all function calls (potential raise sources)
-                        if isinstance(child, ast.Call):
-                            if isinstance(child.func, ast.Name):
-                                calls.append(child.func.id)
-                            elif isinstance(child.func, ast.Attribute):
-                                calls.append(child.func.attr)
+                    visitor = _RaisesVisitor()
+                    visitor.visit(node)
+                    return {
+                        "function": function_name,
+                        "file": str(file_path),
+                        "explicit_raises": list(set(visitor.raises)),
+                        "calls": list(set(visitor.calls))[:20],
+                    }
 
         return {
             "function": function_name,
             "file": str(file_path),
-            "explicit_raises": list(set(raises)),
-            "calls": list(set(calls))[:20],  # Limit to avoid noise
+            "explicit_raises": [],
+            "calls": [],
+            "error": f"Function '{function_name}' not found",
         }
     except Exception as e:
         return {"error": str(e), "function": function_name}
@@ -190,7 +254,7 @@ async def find_usages(symbol: str, repo_path: str) -> dict[str, Any]:
     """
     try:
         proc = await asyncio.create_subprocess_exec(
-            "grep", "-rn", "--include=*.py", symbol, repo_path,
+            "grep", "-Frn", "--include=*.py", symbol, repo_path,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
