@@ -17,9 +17,10 @@ from . import (
 )
 
 # Model CLI commands - extend this dict to add new models
+# Note: gemini requires empty string after -p to read prompt from stdin
 MODEL_COMMANDS: dict[str, list[str]] = {
     "claude": ["claude", "-p"],
-    "gemini": ["gemini", "-p", ""],
+    "gemini": ["gemini", "-p", ""],  # empty arg is workaround for stdin input
 }
 
 # Default timeout for model invocation (5 minutes)
@@ -202,12 +203,14 @@ def parse_review_response(model: str, response: str) -> ModelReview:
             )
         )
 
-    # Determine overall gate - BLOCK if any change is BLOCK
+    # Determine overall gate - BLOCK > CONCERN > PASS
     gate = Verdict.PASS
     for change in changes:
         if change.verdict == Verdict.BLOCK:
             gate = Verdict.BLOCK
             break
+        elif change.verdict == Verdict.CONCERN:
+            gate = Verdict.CONCERN
 
     # If no changes parsed but response exists, default to CONCERN
     if not changes and response.strip():
