@@ -25,9 +25,6 @@ from .reviewer import (
 
 DEFAULT_MODELS = ["claude", "gemini"]
 
-# Prefix for review IDs: "mr" for GitLab, "pr" for GitHub
-REVIEW_ID_PREFIX = "mr"
-
 
 @click.group()
 @click.version_option()
@@ -728,7 +725,6 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
     This is the recommended way to run code review for best results.
     """
     import os
-    import re
     from datetime import datetime
 
     from .reviewer import parse_observations
@@ -738,14 +734,9 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
     # Generate default output_dir if not specified
     if output_dir is None:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        # Try to extract MR/PR number from branch name (e.g., feat/foo-123 -> 123)
-        mr_match = re.search(r"-(\d+)$", branch or "staged")
-        if mr_match:
-            mr_id = f"{REVIEW_ID_PREFIX}-{mr_match.group(1)}"
-        else:
-            # Use sanitized branch name
-            mr_id = (branch or "staged").replace("/", "-")
-        output_dir = os.path.join("reviews", mr_id, timestamp)
+        # Use sanitized branch name as directory
+        branch_id = (branch or "staged").replace("/", "-")
+        output_dir = os.path.join("reviews", branch_id, timestamp)
         click.echo(f"Saving review to {output_dir}/", err=True)
 
     # Preflight check
