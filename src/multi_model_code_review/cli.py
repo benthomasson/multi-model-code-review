@@ -7,8 +7,8 @@ import click
 
 from . import Verdict
 from .aggregator import aggregate_reviews
-from .git_utils import get_current_branch, get_diff, read_file_content
-from .prompts import build_review_prompt
+from .git_utils import get_diff, read_file_content
+from .prompts import build_review_prompt, build_spec_check_prompt
 from .report import format_aggregate_review, format_summary
 from .reviewer import preflight_check, review_with_models
 
@@ -251,6 +251,63 @@ def compare(branch, base, model):
             for m, v in verdicts.items():
                 click.echo(f"  {m}: {v}")
             click.echo()
+
+
+@cli.command("check-spec")
+@click.argument("spec_file", type=click.Path(exists=True))
+@click.option(
+    "--branch", "-b",
+    default=None,
+    help="Branch to check (default: staged changes)",
+)
+@click.option(
+    "--base",
+    default="main",
+    help="Base branch to diff against (default: main)",
+)
+@click.option(
+    "--model", "-m",
+    default="claude",
+    help="Model to use (default: claude)",
+)
+def check_spec(spec_file, branch, base, model):
+    """Check code changes against a specification file."""
+    # Preflight check
+    missing = preflight_check([model])
+    if missing:
+        click.echo(f"Error: Missing CLI tool: {model}", err=True)
+        sys.exit(1)
+
+    # Get diff
+    try:
+        if branch:
+            diff_content = get_diff(branch, base)
+        else:
+            diff_content = get_diff()
+    except RuntimeError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    if not diff_content.strip():
+        click.echo("No changes to check.")
+        sys.exit(0)
+
+    # Read spec
+    spec_content = read_file_content(spec_file)
+    if spec_content is None:
+        click.echo(f"Error: Cannot read spec file: {spec_file}", err=True)
+        sys.exit(1)
+
+    # Build spec check prompt
+    prompt = build_spec_check_prompt(diff_content, spec_content)
+
+    # Run check
+    click.echo(f"Checking spec compliance with {model}...", err=True)
+    from .reviewer import review_with_model
+    result = asyncio.run(review_with_model(model, prompt))
+
+    # Output raw response for spec check (different format than review)
+    click.echo(result.raw_response)
 
 
 @cli.command()

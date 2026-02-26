@@ -86,7 +86,7 @@ def read_file_content(path: str) -> str | None:
         File content or None
     """
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
         return None
