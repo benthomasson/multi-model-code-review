@@ -22,8 +22,16 @@ def get_diff(ref: str | None = None, base: str | None = None, cwd: str | None = 
         # Staged changes
         cmd = ["git", "diff", "--staged"]
     else:
-        # Diff between base and ref (base defaults to main in CLI)
-        base = base or "main"
+        # Diff between base and ref
+        # Default to origin/main to avoid stale local main issues
+        if base is None:
+            # Check if origin/main exists, fall back to main
+            check = subprocess.run(
+                ["git", "rev-parse", "--verify", "origin/main"],
+                capture_output=True,
+                cwd=cwd,
+            )
+            base = "origin/main" if check.returncode == 0 else "main"
         cmd = ["git", "diff", f"{base}...{ref}"]
 
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
