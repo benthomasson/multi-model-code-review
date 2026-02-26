@@ -316,6 +316,123 @@ async def test_coverage(file_path: str, repo_path: str) -> dict[str, Any]:
         return {"error": str(e), "file": file_path}
 
 
+async def file_imports(file_path: str, repo_path: str | None = None) -> dict[str, Any]:
+    """
+    Extract import statements from a Python file.
+
+    Args:
+        file_path: Path to the Python file
+        repo_path: Base path for relative file paths
+
+    Returns:
+        Dict with imports, from_imports, and the raw import section text
+    """
+    try:
+        if repo_path and not Path(file_path).is_absolute():
+            full_path = Path(repo_path) / file_path
+        else:
+            full_path = Path(file_path)
+
+        source = full_path.read_text()
+        tree = ast.parse(source)
+
+        imports: list[str] = []
+        from_imports: list[dict[str, Any]] = []
+
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imports.append(alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                names = [alias.name for alias in node.names]
+                from_imports.append({"module": module, "names": names})
+
+        # Extract raw import section (lines until first non-import/non-comment)
+        lines = source.split("\n")
+        import_section_lines = []
+        in_docstring = False
+        for line in lines:
+            stripped = line.strip()
+            # Skip docstrings
+            if '"""' in stripped or "'''" in stripped:
+                in_docstring = not in_docstring
+                import_section_lines.append(line)
+                continue
+            if in_docstring:
+                import_section_lines.append(line)
+                continue
+            # Include imports, comments, blank lines, __future__
+            if (stripped.startswith("import ") or
+                stripped.startswith("from ") or
+                stripped.startswith("#") or
+                stripped == "" or
+                stripped.startswith("__")):
+                import_section_lines.append(line)
+            else:
+                break
+
+        return {
+            "file": str(file_path),
+            "imports": imports,
+            "from_imports": from_imports,
+            "import_section": "\n".join(import_section_lines),
+        }
+    except Exception as e:
+        return {"error": str(e), "file": file_path}
+
+
+async def project_dependencies(repo_path: str) -> dict[str, Any]:
+    """
+    Get project dependencies from pyproject.toml or requirements.txt.
+
+    Args:
+        repo_path: Repository path
+
+    Returns:
+        Dict with dependencies from pyproject.toml and/or requirements.txt
+    """
+    try:
+        result: dict[str, Any] = {"repo": repo_path}
+
+        # Check pyproject.toml
+        pyproject_path = Path(repo_path) / "pyproject.toml"
+        if pyproject_path.exists():
+            content = pyproject_path.read_text()
+            result["pyproject_toml"] = content
+
+            # Try to parse dependencies section
+            try:
+                import tomllib
+                data = tomllib.loads(content)
+                deps = data.get("project", {}).get("dependencies", [])
+                optional_deps = data.get("project", {}).get("optional-dependencies", {})
+                result["dependencies"] = deps
+                result["optional_dependencies"] = optional_deps
+            except Exception:
+                # tomllib not available or parse error, raw content is still useful
+                pass
+
+        # Check requirements.txt
+        requirements_path = Path(repo_path) / "requirements.txt"
+        if requirements_path.exists():
+            content = requirements_path.read_text()
+            result["requirements_txt"] = content
+
+        # Check requirements-dev.txt
+        requirements_dev_path = Path(repo_path) / "requirements-dev.txt"
+        if requirements_dev_path.exists():
+            content = requirements_dev_path.read_text()
+            result["requirements_dev_txt"] = content
+
+        if "pyproject_toml" not in result and "requirements_txt" not in result:
+            result["error"] = "No pyproject.toml or requirements.txt found"
+
+        return result
+    except Exception as e:
+        return {"error": str(e), "repo": repo_path}
+
+
 # Registry of all observation tools
 OBSERVATION_TOOLS: dict[str, Any] = {
     "exception_hierarchy": exception_hierarchy,
@@ -324,6 +441,8 @@ OBSERVATION_TOOLS: dict[str, Any] = {
     "find_usages": find_usages,
     "git_blame": git_blame,
     "test_coverage": test_coverage,
+    "file_imports": file_imports,
+    "project_dependencies": project_dependencies,
 }
 
 

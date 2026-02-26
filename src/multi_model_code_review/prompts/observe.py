@@ -22,6 +22,8 @@ Do NOT render verdicts yet. Only request observations.
 | `call_graph` | What a function calls | Impact analysis |
 | `find_usages` | Where a symbol is used | Integration verification |
 | `test_coverage` | Find tests for a file | Test coverage claims |
+| `file_imports` | Extract imports from a file | Verify import changes, check dependencies |
+| `project_dependencies` | Get pyproject.toml/requirements.txt | Verify new imports have dependencies |
 
 ## What to Look For
 
@@ -61,6 +63,14 @@ For a diff adding a new function that calls `oauth_client.get_access_token()`:
 ```json
 [
   {{"name": "oauth_exceptions", "tool": "raises_analysis", "params": {{"file_path": "src/auth/oauth.py", "function_name": "get_access_token"}}}}
+]
+```
+
+For a diff adding new imports (e.g., `import httpx`):
+```json
+[
+  {{"name": "file_imports", "tool": "file_imports", "params": {{"file_path": "src/client.py"}}}},
+  {{"name": "project_deps", "tool": "project_dependencies", "params": {{}}}}
 ]
 ```
 
