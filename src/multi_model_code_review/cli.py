@@ -541,5 +541,31 @@ def models():
         click.echo(f"  {name}: {cmd[0]} [{status}]")
 
 
+@cli.command("install-skill")
+@click.option(
+    "--skill-dir",
+    type=click.Path(),
+    default=None,
+    help="Target directory for skill file (default: .claude/skills/code-review)",
+)
+def install_skill(skill_dir):
+    """Install the code-review skill file for Claude Code."""
+    from pathlib import Path
+
+    from .skill import SKILL_CONTENT
+
+    # Determine target directory
+    if skill_dir:
+        target_dir = Path(skill_dir)
+    else:
+        target_dir = Path.cwd() / ".claude" / "skills" / "code-review"
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_file = target_dir / "SKILL.md"
+
+    target_file.write_text(SKILL_CONTENT)
+    click.echo(f"Installed skill to {target_file}")
+
+
 if __name__ == "__main__":
     cli()
