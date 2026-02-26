@@ -8,6 +8,7 @@ import click
 from . import Verdict
 from .aggregator import aggregate_reviews
 from .git_utils import get_diff, read_file_content
+from .lint import get_changed_python_files, run_lint_checks
 from .prompts import build_review_prompt, build_spec_check_prompt
 from .report import format_aggregate_review, format_summary
 from .reviewer import preflight_check, review_with_model, review_with_models
@@ -60,9 +61,26 @@ def cli():
     default=None,
     help="Directory to save outputs (report.md + per-model raw responses)",
 )
-def review(branch, base, spec, model, output, output_dir):
+@click.option(
+    "--lint/--no-lint",
+    default=False,
+    help="Run lint checks (black, isort, ruff) before model review",
+)
+def review(branch, base, spec, model, output, output_dir, lint):
     """Run code review with multiple models."""
     models = list(model) if model else DEFAULT_MODELS
+
+    # Lint check (pre-model gate)
+    if lint:
+        py_files = get_changed_python_files(branch, base)
+        if py_files:
+            click.echo(f"Running lint checks on {len(py_files)} files...", err=True)
+            lint_result = run_lint_checks(py_files)
+            if not lint_result.passed:
+                click.echo("Lint checks failed:", err=True)
+                click.echo(lint_result.summary, err=True)
+                sys.exit(2)
+            click.echo("Lint checks passed", err=True)
 
     # Preflight check
     missing = preflight_check(models)
@@ -164,7 +182,12 @@ def review(branch, base, spec, model, output, output_dir):
     default=None,
     help="Directory to save outputs (report.md + per-model raw responses)",
 )
-def gate(branch, base, spec, model, output_dir):
+@click.option(
+    "--lint/--no-lint",
+    default=False,
+    help="Run lint checks (black, isort, ruff) before model review",
+)
+def gate(branch, base, spec, model, output_dir, lint):
     """
     Run review and exit with code based on result.
 
@@ -174,6 +197,18 @@ def gate(branch, base, spec, model, output_dir):
     - 2: BLOCK (at least one model blocks)
     """
     models = list(model) if model else DEFAULT_MODELS
+
+    # Lint check (pre-model gate)
+    if lint:
+        py_files = get_changed_python_files(branch, base)
+        if py_files:
+            click.echo(f"Running lint checks on {len(py_files)} files...", err=True)
+            lint_result = run_lint_checks(py_files)
+            if not lint_result.passed:
+                click.echo("Lint checks failed:", err=True)
+                click.echo(lint_result.summary, err=True)
+                sys.exit(2)  # Block on lint failure
+            click.echo("Lint checks passed", err=True)
 
     # Preflight check
     missing = preflight_check(models)
@@ -373,6 +408,42 @@ def check_spec(spec_file, branch, base, model):
 
     # Output raw response for spec check (different format than review)
     click.echo(result.raw_response)
+
+
+@cli.command()
+@click.option(
+    "--branch",
+    "-b",
+    default=None,
+    help="Branch to check (default: staged changes)",
+)
+@click.option(
+    "--base",
+    default="main",
+    help="Base branch to diff against (default: main)",
+)
+def lint(branch, base):
+    """Run lint checks (black, isort, ruff) on changed files."""
+    py_files = get_changed_python_files(branch, base)
+
+    if not py_files:
+        click.echo("No Python files changed.")
+        sys.exit(0)
+
+    click.echo(f"Checking {len(py_files)} files:")
+    for f in py_files:
+        click.echo(f"  {f}")
+    click.echo()
+
+    lint_result = run_lint_checks(py_files)
+
+    if lint_result.passed:
+        click.echo("All lint checks passed!")
+        sys.exit(0)
+    else:
+        click.echo("Lint checks failed:\n")
+        click.echo(lint_result.summary)
+        sys.exit(1)
 
 
 @cli.command()

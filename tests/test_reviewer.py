@@ -1,6 +1,5 @@
 """Tests for reviewer module - especially response parsing."""
 
-
 from multi_model_code_review import (
     Correctness,
     Integration,
