@@ -212,8 +212,8 @@ def parse_review_response(model: str, response: str) -> ModelReview:
         elif change.verdict == Verdict.CONCERN:
             gate = Verdict.CONCERN
 
-    # If no changes parsed but response exists, default to CONCERN
-    if not changes and response.strip():
+    # If no changes parsed, default to CONCERN (conservative)
+    if not changes:
         gate = Verdict.CONCERN
 
     return ModelReview(
