@@ -3,7 +3,12 @@
 import subprocess
 
 
-def get_diff(ref: str | None = None, base: str | None = None, cwd: str | None = None) -> str:
+def get_diff(
+    ref: str | None = None,
+    base: str | None = None,
+    cwd: str | None = None,
+    context_lines: int = 10,
+) -> str:
     """
     Get git diff for review.
 
@@ -11,6 +16,7 @@ def get_diff(ref: str | None = None, base: str | None = None, cwd: str | None = 
         ref: Branch or commit to diff. If None, uses staged changes.
         base: Base branch to diff against (default: main)
         cwd: Working directory to run git in (default: current directory)
+        context_lines: Number of context lines around changes (default: 10)
 
     Returns:
         Git diff output as string
@@ -18,9 +24,11 @@ def get_diff(ref: str | None = None, base: str | None = None, cwd: str | None = 
     Raises:
         RuntimeError: If git command fails
     """
+    context_arg = f"-U{context_lines}"
+
     if ref is None:
         # Staged changes
-        cmd = ["git", "diff", "--staged"]
+        cmd = ["git", "diff", "--staged", context_arg]
     else:
         # Diff between base and ref
         # Default to origin/main to avoid stale local main issues
@@ -32,7 +40,7 @@ def get_diff(ref: str | None = None, base: str | None = None, cwd: str | None = 
                 cwd=cwd,
             )
             base = "origin/main" if check.returncode == 0 else "main"
-        cmd = ["git", "diff", f"{base}...{ref}"]
+        cmd = ["git", "diff", context_arg, f"{base}...{ref}"]
 
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
 
