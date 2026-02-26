@@ -317,70 +317,78 @@ def parse_review_response(model: str, response: str) -> ModelReview:
     )
 
 
+def parse_observe_response(response: str) -> list[dict]:
+    """
+    Parse observation requests from observe-only prompt response.
+
+    Args:
+        response: Raw model response (should be JSON array)
+
+    Returns:
+        List of observation request dicts
+    """
+    # Try to find JSON array in response
+    # Look for ```json block first
+    json_match = re.search(r"```json\n(.*?)\n```", response, re.DOTALL)
+    if json_match:
+        try:
+            return json.loads(json_match.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    # Try parsing the whole response as JSON
+    try:
+        result = json.loads(response.strip())
+        if isinstance(result, list):
+            return result
+    except json.JSONDecodeError:
+        pass
+
+    return []
+
+
+async def observe_with_model(model: str, diff_content: str) -> list[dict]:
+    """
+    Run observation-gathering pass with a model.
+
+    Args:
+        model: Model name
+        diff_content: Diff content to analyze
+
+    Returns:
+        List of observation requests
+    """
+    from .prompts.observe import build_observe_prompt
+
+    prompt = build_observe_prompt(diff_content)
+    response = await run_model(model, prompt)
+    return parse_observe_response(response)
+
+
 async def review_with_model(
     model: str,
     prompt: str,
-    repo_path: str | None = None,
-    max_observations: int = 3,
+    observations: dict | None = None,
 ) -> ModelReview:
     """
-    Run review with a single model and parse response.
-
-    Supports observation loop: if the model requests observations,
-    run them and re-invoke the model with the results.
+    Run review with a single model.
 
     Args:
         model: Model name
         prompt: Review prompt
-        repo_path: Repository path for running observations
-        max_observations: Maximum observation iterations (default: 3)
+        observations: Optional observation results to include in review
 
     Returns:
         Parsed ModelReview
     """
-    from .prompts.review import build_review_prompt
-
     try:
-        accumulated_observations: dict = {}
-        current_prompt = prompt
+        response = await run_model(model, prompt)
+        review = parse_review_response(model, response)
 
-        for iteration in range(max_observations + 1):
-            response = await run_model(model, current_prompt)
+        if observations:
+            review.observations = observations
 
-            # Check for observation requests
-            requested_obs = parse_observations(response)
-
-            if not requested_obs or iteration >= max_observations:
-                # No observations or max reached - return final review
-                review = parse_review_response(model, response)
-                if accumulated_observations:
-                    review.observations = accumulated_observations
-                return review
-
-            # Run requested observations
-            if repo_path:
-                print(f"  [{model}] Running {len(requested_obs)} observation(s)...")
-                obs_results = await run_observations(requested_obs, repo_path)
-                accumulated_observations.update(obs_results)
-
-                # Extract diff from original prompt to rebuild with observations
-                # Look for the diff content between ```diff and ```
-                import re
-                diff_match = re.search(r"```diff\n(.*?)\n```", prompt, re.DOTALL)
-                diff_content = diff_match.group(1) if diff_match else ""
-
-                # Rebuild prompt with observation results
-                current_prompt = build_review_prompt(
-                    diff_content=diff_content,
-                    observations=accumulated_observations,
-                )
-            else:
-                # No repo path - can't run observations
-                review = parse_review_response(model, response)
-                return review
-
-        # Should not reach here, but just in case
-        return parse_review_response(model, response)
+        return review
 
     except Exception as e:
         # On error, return BLOCK with error message
@@ -401,8 +409,7 @@ async def review_with_model(
 async def review_with_models(
     models: list[str],
     prompt: str,
-    repo_path: str | None = None,
-    max_observations: int = 3,
+    observations: dict | None = None,
 ) -> list[ModelReview]:
     """
     Run review with multiple models concurrently.
@@ -410,14 +417,13 @@ async def review_with_models(
     Args:
         models: List of model names
         prompt: Review prompt (same for all models)
-        repo_path: Repository path for running observations
-        max_observations: Maximum observation iterations per model
+        observations: Optional observation results to include
 
     Returns:
         List of ModelReview, one per model
     """
     tasks = [
-        review_with_model(model, prompt, repo_path, max_observations)
+        review_with_model(model, prompt, observations)
         for model in models
     ]
     return await asyncio.gather(*tasks)

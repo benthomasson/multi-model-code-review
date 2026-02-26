@@ -10,6 +10,8 @@ CODE_REVIEW_PROMPT = """You are a senior code reviewer. Review the following cod
 {diff_content}
 ```
 
+{observations_section}
+
 ## Instructions
 
 For each significant change (new file, modified function, etc.), provide a structured verdict.
@@ -75,34 +77,6 @@ Examples of limitations:
 - "Test file not included in diff - cannot verify coverage claims"
 - "Spec file referenced but not provided"
 
-## Observation Requests
-
-If you need more information to render a confident verdict, you can request observations.
-Available observation tools:
-
-| Tool | Purpose | Example params |
-|------|---------|----------------|
-| `exception_hierarchy` | Show exception class MRO and all subclasses | `{{"class_name": "httpx.TransportError"}}` |
-| `raises_analysis` | Static analysis of what a function raises | `{{"file_path": "src/client.py", "function_name": "authenticate"}}` |
-| `call_graph` | What functions does a function call | `{{"file_path": "src/client.py", "function_name": "authenticate"}}` |
-| `find_usages` | Where is a symbol used in the codebase | `{{"symbol": "DataverseClient"}}` |
-| `git_blame` | Who changed specific lines | `{{"file_path": "src/client.py", "start_line": 100, "end_line": 120}}` |
-| `test_coverage` | Find tests for a source file | `{{"file_path": "src/client.py"}}` |
-
-To request observations, add this section:
-
-### OBSERVATIONS
-```json
-[
-  {{"name": "result_name", "tool": "tool_name", "params": {{...}}}}
-]
-```
----
-
-The system will run your observations and re-invoke you with the results. Only request
-observations when you genuinely need more context - the review will iterate up to 3 times.
-
-{observations_section}
 
 ## Feature Requests
 

@@ -5,13 +5,16 @@ import sys
 
 import click
 
+import json
+
 from . import Verdict
 from .aggregator import aggregate_reviews
 from .git_utils import get_diff, read_file_content
 from .lint import get_changed_python_files, run_lint_checks, run_lint_fixes
-from .prompts import build_review_prompt, build_spec_check_prompt
+from .observations import run_observations
+from .prompts import build_observe_prompt, build_review_prompt, build_spec_check_prompt
 from .report import format_aggregate_review, format_summary
-from .reviewer import preflight_check, review_with_model, review_with_models
+from .reviewer import observe_with_model, preflight_check, review_with_model, review_with_models
 
 DEFAULT_MODELS = ["claude", "gemini"]
 
@@ -79,7 +82,13 @@ def cli():
     default=False,
     help="Auto-fix lint issues before model review",
 )
-def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint):
+@click.option(
+    "--observations",
+    type=click.Path(exists=True),
+    default=None,
+    help="JSON file with observation results (from 'observe' command)",
+)
+def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint, observations):
     """Run code review with multiple models."""
     models = list(model) if model else DEFAULT_MODELS
 
@@ -131,12 +140,19 @@ def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint):
         if spec_content is None:
             click.echo(f"Warning: Spec file not found: {spec}", err=True)
 
-    # Build prompt
-    prompt = build_review_prompt(diff_content, spec_content)
+    # Load observations if provided
+    obs_data = None
+    if observations:
+        with open(observations) as f:
+            obs_data = json.load(f)
+        click.echo(f"Loaded {len(obs_data)} observation(s) from {observations}", err=True)
 
-    # Run reviews (with observation support)
+    # Build prompt
+    prompt = build_review_prompt(diff_content, spec_content, observations=obs_data)
+
+    # Run reviews
     click.echo(f"Running review with {', '.join(models)}...", err=True)
-    reviews = asyncio.run(review_with_models(models, prompt, repo_path=repo))
+    reviews = asyncio.run(review_with_models(models, prompt, observations=obs_data))
 
     # Aggregate
     result = aggregate_reviews(diff_ref, reviews, spec)
@@ -168,6 +184,108 @@ def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint):
 
     # Always output to stdout
     click.echo(report)
+
+
+@cli.command()
+@click.option(
+    "--branch",
+    "-b",
+    default=None,
+    help="Branch to analyze (default: staged changes)",
+)
+@click.option(
+    "--base",
+    default="main",
+    help="Base branch to diff against (default: main)",
+)
+@click.option(
+    "--repo",
+    "-r",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+    default=None,
+    help="Repository directory to analyze (default: current directory)",
+)
+@click.option(
+    "--model",
+    "-m",
+    default="claude",
+    help="Model to use for observation gathering (default: claude)",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    default=None,
+    help="Output file for observations JSON (default: stdout)",
+)
+@click.option(
+    "--run/--no-run",
+    default=True,
+    help="Run observations after gathering (default: --run)",
+)
+def observe(branch, base, repo, model, output, run):
+    """
+    Gather observations needed for code review.
+
+    Analyzes the diff and determines what additional information is needed,
+    then optionally runs the observations. Output can be passed to 'review --observations'.
+
+    Example workflow:
+        code-review observe -b feature-branch -o obs.json
+        code-review review -b feature-branch --observations obs.json
+    """
+    # Get diff
+    try:
+        if branch:
+            diff_ref = branch
+            diff_content = get_diff(branch, base, cwd=repo)
+        else:
+            diff_ref = "staged"
+            diff_content = get_diff(cwd=repo)
+    except RuntimeError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    if not diff_content.strip():
+        click.echo("No changes to analyze.", err=True)
+        sys.exit(0)
+
+    # Preflight check
+    if not preflight_check([model]) == []:
+        click.echo(f"Error: Model '{model}' CLI not available", err=True)
+        sys.exit(1)
+
+    # Run observation gathering
+    click.echo(f"Gathering observations with {model}...", err=True)
+    requested_obs = asyncio.run(observe_with_model(model, diff_content))
+
+    if not requested_obs:
+        click.echo("No observations needed.", err=True)
+        result = {}
+    else:
+        click.echo(f"Model requested {len(requested_obs)} observation(s):", err=True)
+        for obs in requested_obs:
+            click.echo(f"  - {obs.get('tool')}: {obs.get('name')}", err=True)
+
+        if run and repo:
+            # Run the observations
+            click.echo("Running observations...", err=True)
+            result = asyncio.run(run_observations(requested_obs, repo))
+            click.echo(f"Completed {len(result)} observation(s)", err=True)
+        else:
+            # Just output the requests
+            result = {"_requests": requested_obs, "_results": {}}
+            if not repo:
+                click.echo("Warning: --repo not specified, cannot run observations", err=True)
+
+    # Output
+    output_json = json.dumps(result, indent=2, default=str)
+    if output:
+        with open(output, "w") as f:
+            f.write(output_json)
+        click.echo(f"Saved observations to {output}", err=True)
+    else:
+        click.echo(output_json)
 
 
 @cli.command()
@@ -278,9 +396,9 @@ def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint):
     # Build prompt
     prompt = build_review_prompt(diff_content, spec_content)
 
-    # Run reviews (with observation support)
+    # Run reviews
     click.echo(f"Running gate check with {', '.join(models)}...", err=True)
-    reviews = asyncio.run(review_with_models(models, prompt, repo_path=repo))
+    reviews = asyncio.run(review_with_models(models, prompt))
 
     # Aggregate
     result = aggregate_reviews(diff_ref, reviews, spec)
@@ -374,9 +492,9 @@ def compare(branch, base, repo, model):
     # Build prompt (no spec for simple compare)
     prompt = build_review_prompt(diff_content)
 
-    # Run reviews (with observation support)
+    # Run reviews
     click.echo(f"Running comparison with {', '.join(models)}...", err=True)
-    reviews = asyncio.run(review_with_models(models, prompt, repo_path=repo))
+    reviews = asyncio.run(review_with_models(models, prompt))
 
     # Aggregate
     result = aggregate_reviews(diff_ref, reviews)

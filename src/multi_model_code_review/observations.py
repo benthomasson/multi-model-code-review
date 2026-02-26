@@ -340,16 +340,29 @@ async def run_observation(name: str, tool: str, params: dict[str, Any], repo_pat
     Returns:
         Dict with the observation result
     """
+    import inspect
+
     if tool not in OBSERVATION_TOOLS:
         return {"name": name, "result": {"error": f"Unknown tool: {tool}"}}
 
     tool_func = OBSERVATION_TOOLS[tool]
 
-    # Inject repo_path if the tool accepts it
-    if "repo_path" not in params:
-        params["repo_path"] = repo_path
+    # Get valid parameters for this tool
+    sig = inspect.signature(tool_func)
+    valid_params = set(sig.parameters.keys())
 
-    result = await tool_func(**params)
+    # Filter params to only valid ones
+    filtered_params = {k: v for k, v in params.items() if k in valid_params}
+
+    # Inject repo_path if the tool accepts it
+    if "repo_path" in valid_params and "repo_path" not in filtered_params:
+        filtered_params["repo_path"] = repo_path
+
+    try:
+        result = await tool_func(**filtered_params)
+    except TypeError as e:
+        result = {"error": f"Parameter error: {e}", "params_received": list(params.keys())}
+
     return {"name": name, "tool": tool, "result": result}
 
 
