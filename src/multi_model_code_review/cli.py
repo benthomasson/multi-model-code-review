@@ -26,6 +26,29 @@ from .reviewer import (
 DEFAULT_MODELS = ["claude", "gemini"]
 
 
+async def _gather_coverage_lookups(python_files: list[str], repo_path: str, limit: int = 10) -> dict:
+    """Gather coverage-map lookups for multiple files in parallel.
+
+    Returns dict mapping observation names to results.
+    """
+    files_to_check = python_files[:limit]
+    if not files_to_check:
+        return {}
+
+    tasks = [coverage_map_tests(f, repo_path) for f in files_to_check]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    observations = {}
+    for file_path, result in zip(files_to_check, results):
+        if isinstance(result, Exception):
+            continue
+        if "error" not in result and result.get("tests"):
+            obs_name = f"coverage_{file_path.replace('/', '_').replace('.py', '')}"
+            observations[obs_name] = result
+
+    return observations
+
+
 @click.group()
 @click.version_option()
 def cli():
@@ -784,17 +807,16 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
     # Create output_dir early so we can save iteration artifacts
     os.makedirs(output_dir, exist_ok=True)
 
-    # Auto-lookup coverage-map for changed files
+    # Auto-lookup coverage-map for changed files (parallel)
     changed_files = extract_changed_files(diff_content)
     python_files = [f for f in changed_files if f.endswith(".py") and not f.startswith("tests/")]
     if python_files:
         click.echo(f"Auto-lookup: {len(python_files)} Python file(s) changed", err=True)
-        for file_path in python_files[:10]:  # Limit to first 10 files
-            result = asyncio.run(coverage_map_tests(file_path, repo))
-            if "error" not in result and result.get("tests"):
-                obs_name = f"coverage_{file_path.replace('/', '_').replace('.py', '')}"
-                all_observations[obs_name] = result
-                click.echo(f"  {file_path}: {result.get('test_count', 0)} tests", err=True)
+        coverage_obs = asyncio.run(_gather_coverage_lookups(python_files, repo))
+        for obs_name, result in coverage_obs.items():
+            all_observations[obs_name] = result
+            file_path = obs_name.replace("coverage_", "").replace("_", "/") + ".py"
+            click.echo(f"  {file_path}: {result.get('test_count', 0)} tests", err=True)
         if all_observations:
             # Save auto-observations
             with open(os.path.join(output_dir, "00-auto-coverage.json"), "w") as f:
@@ -1036,16 +1058,14 @@ def files(paths, repo, spec, model, output_dir, glob):
     observe_model = models[0]
     all_observations = {}
 
-    # Auto-lookup coverage-map for files
+    # Auto-lookup coverage-map for files (parallel)
     python_files = [str(f.relative_to(repo_path)) for f in files_to_review if not str(f).startswith("tests")]
     if python_files:
         click.echo(f"Auto-lookup: checking coverage for {len(python_files)} file(s)", err=True)
-        for file_path in python_files[:10]:
-            result = asyncio.run(coverage_map_tests(file_path, str(repo_path)))
-            if "error" not in result and result.get("tests"):
-                obs_name = f"coverage_{file_path.replace('/', '_').replace('.py', '')}"
-                all_observations[obs_name] = result
-                click.echo(f"  {file_path}: {result.get('test_count', 0)} tests", err=True)
+        all_observations = asyncio.run(_gather_coverage_lookups(python_files, str(repo_path)))
+        for obs_name, result in all_observations.items():
+            file_path = obs_name.replace("coverage_", "").replace("_", "/") + ".py"
+            click.echo(f"  {file_path}: {result.get('test_count', 0)} tests", err=True)
         if all_observations:
             with open(os.path.join(output_dir, "00-auto-coverage.json"), "w") as f:
                 json.dump(all_observations, f, indent=2, default=str)
