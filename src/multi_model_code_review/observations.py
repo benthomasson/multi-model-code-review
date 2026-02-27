@@ -39,9 +39,16 @@ async def exception_hierarchy(class_name: str, repo_path: str | None = None) -> 
         Dict with class name, MRO, and all subclasses (recursive)
     """
     try:
-        module_name, cls_name = class_name.rsplit(".", 1)
-        module = importlib.import_module(module_name)
-        cls = getattr(module, cls_name)
+        # Handle bare names like "ValueError" by assuming builtins
+        if "." in class_name:
+            module_name, cls_name = class_name.rsplit(".", 1)
+            module = importlib.import_module(module_name)
+            cls = getattr(module, cls_name)
+        else:
+            # Try builtins first
+            import builtins
+            cls = getattr(builtins, class_name)
+            cls_name = class_name
 
         def get_all_subclasses(c: type) -> list[str]:
             """Recursively get all subclasses."""

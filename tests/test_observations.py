@@ -44,6 +44,16 @@ async def test_exception_hierarchy_builtin():
 
 
 @pytest.mark.asyncio
+async def test_exception_hierarchy_bare_builtin():
+    """Test exception hierarchy for bare builtin name (no module prefix)."""
+    result = await exception_hierarchy("ValueError")
+
+    assert "error" not in result
+    assert result["class"] == "ValueError"
+    assert "mro" in result
+
+
+@pytest.mark.asyncio
 async def test_exception_hierarchy_invalid():
     """Test exception hierarchy with invalid class."""
     result = await exception_hierarchy("nonexistent.FakeError")
