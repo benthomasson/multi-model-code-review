@@ -11,6 +11,7 @@ from . import Verdict
 from .aggregator import aggregate_reviews
 from .git_utils import extract_changed_files, get_diff, read_file_content
 from .lint import get_changed_python_files, run_lint_checks, run_lint_fixes
+from .fixer import fix_blocks as fix_blocks_async
 from .observations import coverage_map_tests, run_observations
 from .prompts import build_observe_prompt, build_review_prompt, build_spec_check_prompt
 from .report import format_aggregate_review, format_summary
@@ -955,7 +956,13 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
     is_flag=True,
     help="Treat paths as glob patterns",
 )
-def files(paths, repo, spec, model, output_dir, glob):
+@click.option(
+    "--fix-blocks",
+    is_flag=True,
+    default=False,
+    help="Automatically attempt to fix BLOCK verdicts",
+)
+def files(paths, repo, spec, model, output_dir, glob, fix_blocks):
     """
     Review specific files or directories (not diffs).
 
@@ -1100,6 +1107,57 @@ def files(paths, repo, spec, model, output_dir, glob):
             json.dump(all_observations, f, indent=2, default=str)
 
     click.echo(report)
+
+    # Attempt to fix BLOCKs if requested
+    if fix_blocks and result.gate == Verdict.BLOCK:
+        # Extract BLOCKs from reviews
+        blocks = []
+        for model_review in reviews:
+            for change in model_review.changes:
+                if change.verdict == Verdict.BLOCK:
+                    blocks.append({
+                        "file": change.change_id,
+                        "concern": change.reasoning,
+                    })
+
+        # Deduplicate by file (keep first concern per file)
+        seen_files = set()
+        unique_blocks = []
+        for block in blocks:
+            if block["file"] not in seen_files:
+                seen_files.add(block["file"])
+                unique_blocks.append(block)
+
+        if unique_blocks:
+            click.echo(f"\n--- Fix Blocks ---", err=True)
+            click.echo(f"Attempting to fix {len(unique_blocks)} BLOCK(s)...", err=True)
+
+            fix_results = asyncio.run(fix_blocks_async(unique_blocks, models[0], repo))
+
+            # Show results
+            fixed_count = 0
+            for r in fix_results:
+                if r["status"] == "fixed":
+                    click.echo(f"  ✓ {r['file']}: fixed", err=True)
+                    fixed_count += 1
+                else:
+                    click.echo(f"  ✗ {r['file']}: {r.get('error', 'failed')}", err=True)
+
+            # Save patches
+            patches_dir = os.path.join(output_dir, "patches")
+            os.makedirs(patches_dir, exist_ok=True)
+            for i, r in enumerate(fix_results):
+                if r.get("patch"):
+                    patch_filename = f"{i:02d}-{Path(r['file']).name}.patch"
+                    patch_path = os.path.join(patches_dir, patch_filename)
+                    with open(patch_path, "w") as f:
+                        f.write(r["patch"])
+                    click.echo(f"  Saved patch: {patch_path}", err=True)
+
+            if fixed_count > 0:
+                click.echo(f"\nApplied {fixed_count} fix(es). Run review again to verify.", err=True)
+            else:
+                click.echo(f"\nNo fixes could be applied.", err=True)
 
 
 @cli.command("install-skill")
