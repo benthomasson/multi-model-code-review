@@ -815,8 +815,7 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations):
         coverage_obs = asyncio.run(_gather_coverage_lookups(python_files, repo))
         for obs_name, result in coverage_obs.items():
             all_observations[obs_name] = result
-            file_path = obs_name.replace("coverage_", "").replace("_", "/") + ".py"
-            click.echo(f"  {file_path}: {result.get('test_count', 0)} tests", err=True)
+            click.echo(f"  {result.get('source_file', obs_name)}: {result.get('test_count', 0)} tests", err=True)
         if all_observations:
             # Save auto-observations
             with open(os.path.join(output_dir, "00-auto-coverage.json"), "w") as f:
@@ -1064,8 +1063,7 @@ def files(paths, repo, spec, model, output_dir, glob):
         click.echo(f"Auto-lookup: checking coverage for {len(python_files)} file(s)", err=True)
         all_observations = asyncio.run(_gather_coverage_lookups(python_files, str(repo_path)))
         for obs_name, result in all_observations.items():
-            file_path = obs_name.replace("coverage_", "").replace("_", "/") + ".py"
-            click.echo(f"  {file_path}: {result.get('test_count', 0)} tests", err=True)
+            click.echo(f"  {result.get('source_file', obs_name)}: {result.get('test_count', 0)} tests", err=True)
         if all_observations:
             with open(os.path.join(output_dir, "00-auto-coverage.json"), "w") as f:
                 json.dump(all_observations, f, indent=2, default=str)
