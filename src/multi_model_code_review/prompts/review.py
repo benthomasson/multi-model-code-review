@@ -4,6 +4,8 @@ CODE_REVIEW_PROMPT = """You are a senior code reviewer. Review the following cod
 
 {spec_section}
 
+{beliefs_section}
+
 ## Code Changes
 
 ```diff
@@ -22,6 +24,7 @@ Use this exact format for each change:
 VERDICT: PASS | CONCERN | BLOCK
 CORRECTNESS: VALID | QUESTIONABLE | BROKEN
 SPEC_COMPLIANCE: MEETS | PARTIAL | VIOLATES | N/A
+BELIEF_COMPLIANCE: CONSISTENT | VIOLATES | N/A
 TEST_COVERAGE: COVERED | PARTIAL | UNTESTED
 INTEGRATION: WIRED | PARTIAL | MISSING
 REASONING: <brief explanation of your assessment>
@@ -49,6 +52,11 @@ REASONING: <brief explanation of your assessment>
    - WIRED: Feature is fully integrated and usable
    - PARTIAL: Interface exists but callers not updated, or integration incomplete
    - MISSING: No integration with existing code
+
+5. **BELIEF_COMPLIANCE** (only when beliefs are provided): Do the changes respect known architectural invariants, contracts, and rules?
+   - CONSISTENT: Changes align with or reinforce known beliefs
+   - VIOLATES: Changes contradict a specific belief — cite the belief ID
+   - N/A: No beliefs provided or no relevant beliefs apply
 
 ## Verdict Guidelines
 
@@ -100,14 +108,16 @@ def build_review_prompt(
     diff_content: str,
     spec_content: str | None = None,
     observations: dict | None = None,
+    beliefs_content: str | None = None,
 ) -> str:
     """
-    Build the review prompt with diff, optional spec, and observation results.
+    Build the review prompt with diff, optional spec, beliefs, and observation results.
 
     Args:
         diff_content: Git diff to review
         spec_content: Optional spec file content
         observations: Optional dict of observation results from previous iteration
+        beliefs_content: Optional beliefs file content (from code-expert knowledge base)
 
     Returns:
         Complete prompt for model
@@ -125,6 +135,20 @@ Review the code against this specification. Flag any MUST requirements that are 
 """
     else:
         spec_section = "## Specification\n\nNo specification provided. Focus on correctness, tests, and integration."
+
+    if beliefs_content:
+        beliefs_section = f"""## Known Beliefs (Architecture & Contracts)
+
+The following beliefs are established facts about this codebase, extracted from expert analysis.
+Check each code change against these beliefs. If a change VIOLATES a belief, flag it with BELIEF_COMPLIANCE: VIOLATES and cite the belief ID.
+If a change is CONSISTENT with a belief, note it briefly. If no beliefs are relevant to a change, use BELIEF_COMPLIANCE: N/A.
+
+```markdown
+{beliefs_content}
+```
+"""
+    else:
+        beliefs_section = ""
 
     if observations:
         observations_section = f"""## Observation Results
@@ -144,4 +168,5 @@ Use these results to inform your review. Do not request the same observations ag
         spec_section=spec_section,
         diff_content=diff_content,
         observations_section=observations_section,
+        beliefs_section=beliefs_section,
     )
