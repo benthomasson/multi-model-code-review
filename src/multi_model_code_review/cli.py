@@ -125,7 +125,13 @@ def cli():
     default=None,
     help="Path to beliefs.md file for belief-aware review (from code-expert)",
 )
-def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint, observations, beliefs):
+@click.option(
+    "--issue",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to issue description file to check changes against",
+)
+def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint, observations, beliefs, issue):
     """Run code review with multiple models."""
     import os
 
@@ -201,8 +207,17 @@ def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint, 
         else:
             click.echo(f"Warning: Could not read beliefs file: {beliefs}", err=True)
 
+    # Load issue if provided
+    issue_content = None
+    if issue:
+        issue_content = read_file_content(issue)
+        if issue_content:
+            click.echo(f"Loaded issue from {issue}", err=True)
+        else:
+            click.echo(f"Warning: Could not read issue file: {issue}", err=True)
+
     # Build prompt
-    prompt = build_review_prompt(diff_content, spec_content, observations=obs_data, beliefs_content=beliefs_content)
+    prompt = build_review_prompt(diff_content, spec_content, observations=obs_data, beliefs_content=beliefs_content, issue_content=issue_content)
 
     # Run reviews
     click.echo(f"Running review with {', '.join(models)}...", err=True)
@@ -399,7 +414,13 @@ def observe(branch, base, repo, model, output, run):
     default=None,
     help="Path to beliefs.md file for belief-aware review (from code-expert)",
 )
-def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint, beliefs):
+@click.option(
+    "--issue",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to issue description file to check changes against",
+)
+def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint, beliefs, issue):
     """
     Run review and exit with code based on result.
 
@@ -472,8 +493,17 @@ def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint, beliefs):
         else:
             click.echo(f"Warning: Could not read beliefs file: {beliefs}", err=True)
 
+    # Load issue if provided
+    issue_content = None
+    if issue:
+        issue_content = read_file_content(issue)
+        if issue_content:
+            click.echo(f"Loaded issue from {issue}", err=True)
+        else:
+            click.echo(f"Warning: Could not read issue file: {issue}", err=True)
+
     # Build prompt
-    prompt = build_review_prompt(diff_content, spec_content, beliefs_content=beliefs_content)
+    prompt = build_review_prompt(diff_content, spec_content, beliefs_content=beliefs_content, issue_content=issue_content)
 
     # Run reviews
     click.echo(f"Running gate check with {', '.join(models)}...", err=True)
@@ -790,7 +820,13 @@ def models():
     default=None,
     help="Path to beliefs.md file for belief-aware review (from code-expert)",
 )
-def auto(branch, base, repo, spec, model, output, output_dir, max_iterations, beliefs):
+@click.option(
+    "--issue",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to issue description file to check changes against",
+)
+def auto(branch, base, repo, spec, model, output, output_dir, max_iterations, beliefs, issue):
     """
     Run automated observe/review loop.
 
@@ -851,6 +887,15 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations, be
             click.echo(f"Loaded beliefs from {beliefs}", err=True)
         else:
             click.echo(f"Warning: Could not read beliefs file: {beliefs}", err=True)
+
+    # Load issue if provided
+    issue_content = None
+    if issue:
+        issue_content = read_file_content(issue)
+        if issue_content:
+            click.echo(f"Loaded issue from {issue}", err=True)
+        else:
+            click.echo(f"Warning: Could not read issue file: {issue}", err=True)
 
     # Use first model for observation gathering
     observe_model = models[0]
@@ -920,7 +965,7 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations, be
 
         # Review pass
         click.echo(f"Running review with {', '.join(models)}...", err=True)
-        review_prompt = build_review_prompt(diff_content, spec_content, observations=all_observations if all_observations else None, beliefs_content=beliefs_content)
+        review_prompt = build_review_prompt(diff_content, spec_content, observations=all_observations if all_observations else None, beliefs_content=beliefs_content, issue_content=issue_content)
 
         # Save review prompt
         with open(os.path.join(output_dir, f"{iter_prefix}-review-prompt.txt"), "w") as f:
@@ -1019,7 +1064,13 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations, be
     default=None,
     help="Path to beliefs.md file for belief-aware review (from code-expert)",
 )
-def files(paths, repo, spec, model, output_dir, glob, fix_blocks, beliefs):
+@click.option(
+    "--issue",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to issue description file to check changes against",
+)
+def files(paths, repo, spec, model, output_dir, glob, fix_blocks, beliefs, issue):
     """
     Review specific files or directories (not diffs).
 
@@ -1126,6 +1177,15 @@ def files(paths, repo, spec, model, output_dir, glob, fix_blocks, beliefs):
         else:
             click.echo(f"Warning: Could not read beliefs file: {beliefs}", err=True)
 
+    # Load issue if provided
+    issue_content = None
+    if issue:
+        issue_content = read_file_content(issue)
+        if issue_content:
+            click.echo(f"Loaded issue from {issue}", err=True)
+        else:
+            click.echo(f"Warning: Could not read issue file: {issue}", err=True)
+
     # Use first model for observation gathering
     observe_model = models[0]
     all_observations = {}
@@ -1143,7 +1203,7 @@ def files(paths, repo, spec, model, output_dir, glob, fix_blocks, beliefs):
 
     # Single iteration for files review (no observe loop needed - we have full context)
     click.echo(f"\nRunning review with {', '.join(models)}...", err=True)
-    review_prompt = build_review_prompt(diff_content, spec_content, observations=all_observations if all_observations else None, beliefs_content=beliefs_content)
+    review_prompt = build_review_prompt(diff_content, spec_content, observations=all_observations if all_observations else None, beliefs_content=beliefs_content, issue_content=issue_content)
 
     # Save review prompt
     with open(os.path.join(output_dir, "review-prompt.txt"), "w") as f:

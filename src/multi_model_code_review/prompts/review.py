@@ -6,6 +6,8 @@ CODE_REVIEW_PROMPT = """You are a senior code reviewer. Review the following cod
 
 {beliefs_section}
 
+{issue_section}
+
 ## Code Changes
 
 ```diff
@@ -24,6 +26,7 @@ Use this exact format for each change:
 VERDICT: PASS | CONCERN | BLOCK
 CORRECTNESS: VALID | QUESTIONABLE | BROKEN
 SPEC_COMPLIANCE: MEETS | PARTIAL | VIOLATES | N/A
+ISSUE_COMPLIANCE: ADDRESSES | PARTIAL | UNRELATED | N/A
 BELIEF_COMPLIANCE: CONSISTENT | VIOLATES | N/A
 TEST_COVERAGE: COVERED | PARTIAL | UNTESTED
 INTEGRATION: WIRED | PARTIAL | MISSING
@@ -43,17 +46,23 @@ REASONING: <brief explanation of your assessment>
    - VIOLATES: Contradicts spec requirements
    - N/A: No spec provided or not applicable
 
-3. **TEST_COVERAGE**: Are there tests for the new/changed code?
+3. **ISSUE_COMPLIANCE** (only when an issue is provided): Do the changes address the problem or feature described in the issue?
+   - ADDRESSES: Changes directly solve the issue's stated problem or implement the requested feature
+   - PARTIAL: Changes partially address the issue but leave some aspects unresolved
+   - UNRELATED: Changes do not appear related to the issue
+   - N/A: No issue provided
+
+4. **TEST_COVERAGE**: Are there tests for the new/changed code?
    - COVERED: Tests exist and cover the changes
    - PARTIAL: Some tests exist but coverage is incomplete
    - UNTESTED: No tests for the changes
 
-4. **INTEGRATION**: Are callers updated? Is the feature usable end-to-end?
+5. **INTEGRATION**: Are callers updated? Is the feature usable end-to-end?
    - WIRED: Feature is fully integrated and usable
    - PARTIAL: Interface exists but callers not updated, or integration incomplete
    - MISSING: No integration with existing code
 
-5. **BELIEF_COMPLIANCE** (only when beliefs are provided): Do the changes respect known architectural invariants, contracts, and rules?
+6. **BELIEF_COMPLIANCE** (only when beliefs are provided): Do the changes respect known architectural invariants, contracts, and rules?
    - CONSISTENT: Changes align with or reinforce known beliefs
    - VIOLATES: Changes contradict a specific belief — cite the belief ID
    - N/A: No beliefs provided or no relevant beliefs apply
@@ -109,15 +118,17 @@ def build_review_prompt(
     spec_content: str | None = None,
     observations: dict | None = None,
     beliefs_content: str | None = None,
+    issue_content: str | None = None,
 ) -> str:
     """
-    Build the review prompt with diff, optional spec, beliefs, and observation results.
+    Build the review prompt with diff, optional spec, beliefs, issue, and observation results.
 
     Args:
         diff_content: Git diff to review
         spec_content: Optional spec file content
         observations: Optional dict of observation results from previous iteration
         beliefs_content: Optional beliefs file content (from code-expert knowledge base)
+        issue_content: Optional issue description to check changes against
 
     Returns:
         Complete prompt for model
@@ -150,6 +161,18 @@ If a change is CONSISTENT with a belief, note it briefly. If no beliefs are rele
     else:
         beliefs_section = ""
 
+    if issue_content:
+        issue_section = f"""## Issue Description
+
+Review the code changes against this issue. Determine whether the changes address the problem or feature request described.
+
+```markdown
+{issue_content}
+```
+"""
+    else:
+        issue_section = ""
+
     if observations:
         observations_section = f"""## Observation Results
 
@@ -169,4 +192,5 @@ Use these results to inform your review. Do not request the same observations ag
         diff_content=diff_content,
         observations_section=observations_section,
         beliefs_section=beliefs_section,
+        issue_section=issue_section,
     )
