@@ -16,10 +16,10 @@ uv tool install "git+https://github.com/benthomasson/multi-model-code-review"
 
 ```bash
 # Review a branch (recommended - uses observe/review loop)
-code-review auto -b feature-branch
+code-review review-loop -b feature-branch
 
 # Review staged changes
-code-review auto
+code-review review-loop
 ```
 
 ## Why Multi-Model?
@@ -35,14 +35,14 @@ If models disagree, humans should look closer.
 
 ## Commands
 
-### auto (Recommended)
+### review-loop (Recommended)
 
 Run the full observe → review loop with automatic context gathering.
 
 ```bash
-code-review auto -b feature-branch
-code-review auto -b feature-branch --base main
-code-review auto -b feature-branch --max-iterations 3
+code-review review-loop -b feature-branch
+code-review review-loop -b feature-branch --base main
+code-review review-loop -b feature-branch --max-iterations 3
 ```
 
 This:
@@ -148,7 +148,7 @@ uvx --from "git+https://github.com/benthomasson/coverage-map" \
   coverage-map collect --source src --tests tests
 
 # Run review (auto-detects coverage-map.json)
-code-review auto -b feature-branch
+code-review review-loop -b feature-branch
 ```
 
 Output:
@@ -202,7 +202,7 @@ GATE: CONCERN (no BLOCKs)
 
 ## Output Directory
 
-The `auto` command saves artifacts to `reviews/<branch>/<timestamp>/`:
+The `review-loop` command saves artifacts to `reviews/<branch>/<timestamp>/`:
 
 ```
 reviews/feat-oauth-retry/2026-02-26_17-36-02/

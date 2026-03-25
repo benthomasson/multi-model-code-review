@@ -863,7 +863,7 @@ def models():
         click.echo(f"  {name}: {cmd[0]} [{status}]")
 
 
-@cli.command()
+@cli.command(name="review-loop")
 @click.option(
     "--branch",
     "-b",
@@ -942,7 +942,7 @@ def models():
     default=False,
     help="Post review as a comment on the PR (requires --pr)",
 )
-def auto(branch, base, pr, repo, spec, model, output, output_dir, max_iterations, beliefs, issue, github_issue, comment):
+def review_loop(branch, base, pr, repo, spec, model, output, output_dir, max_iterations, beliefs, issue, github_issue, comment):
     """
     Run automated observe/review loop.
 
