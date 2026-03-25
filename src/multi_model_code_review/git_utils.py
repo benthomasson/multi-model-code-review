@@ -177,6 +177,68 @@ def post_pr_comment(pr_ref: str, body: str) -> None:
         raise RuntimeError(f"gh pr comment failed: {result.stderr.strip()}")
 
 
+def parse_issue_ref(issue_ref: str) -> tuple[str | None, int]:
+    """
+    Parse a GitHub issue reference into (repo, number).
+
+    Accepts:
+        - Full URL: https://github.com/owner/repo/issues/123
+        - Shorthand: owner/repo#123
+        - Number only: 123 (repo=None, uses current repo)
+
+    Returns:
+        (repo, issue_number) where repo is "owner/repo" or None
+    """
+    # Full GitHub URL
+    m = re.match(r"https?://github\.com/([^/]+/[^/]+)/issues/(\d+)", issue_ref)
+    if m:
+        return m.group(1), int(m.group(2))
+
+    # Shorthand: owner/repo#123
+    m = re.match(r"([^/]+/[^#]+)#(\d+)", issue_ref)
+    if m:
+        return m.group(1), int(m.group(2))
+
+    # Plain number
+    m = re.match(r"(\d+)$", issue_ref)
+    if m:
+        return None, int(m.group(1))
+
+    raise ValueError(f"Cannot parse issue reference: {issue_ref}")
+
+
+def get_github_issue(issue_ref: str) -> str:
+    """
+    Fetch a GitHub issue's title and body using gh CLI.
+
+    Args:
+        issue_ref: Issue URL, owner/repo#N, or number
+
+    Returns:
+        Formatted issue content (title + body)
+
+    Raises:
+        RuntimeError: If gh command fails
+    """
+    import json
+
+    repo, issue_number = parse_issue_ref(issue_ref)
+
+    cmd = ["gh", "issue", "view", str(issue_number), "--json", "title,body"]
+    if repo:
+        cmd.extend(["--repo", repo])
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"gh issue view failed: {result.stderr.strip()}")
+
+    data = json.loads(result.stdout)
+    title = data.get("title", "")
+    body = data.get("body", "") or ""
+
+    return f"## {title}\n\n{body}"
+
+
 def extract_changed_files(diff_content: str) -> list[str]:
     """
     Extract file paths from a git diff.

@@ -53,6 +53,12 @@ code-review lint --repo ~/git/my-project -b feature-branch
 code-review lint --repo ~/git/my-project -b feature-branch --fix
 ```
 
+### Review a PR against its issue
+```bash
+code-review review --pr https://github.com/owner/repo/pull/123 --github-issue https://github.com/owner/repo/issues/42
+code-review review --pr owner/repo#123 --github-issue owner/repo#42
+```
+
 ### Gate check (exit code based on result)
 ```bash
 code-review gate -b feature-branch
@@ -101,6 +107,7 @@ Options:
 - `--lint/--no-lint` - Run lint checks before model review
 - `--fix-lint` - Auto-fix lint issues before review
 - `--beliefs` - Path to beliefs.md for belief-aware review (from code-expert)
+- `--github-issue` - GitHub issue to check against (URL, owner/repo#N, or number)
 
 ### `lint`
 Run lint checks (black, isort, ruff) on changed files.

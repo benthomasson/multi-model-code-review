@@ -9,7 +9,7 @@ import json
 
 from . import Verdict
 from .aggregator import aggregate_reviews
-from .git_utils import extract_changed_files, get_diff, get_pr_diff, post_pr_comment, pr_output_dir_name, read_file_content
+from .git_utils import extract_changed_files, get_diff, get_github_issue, get_pr_diff, post_pr_comment, pr_output_dir_name, read_file_content
 from .lint import get_changed_python_files, run_lint_checks, run_lint_fixes
 from .fixer import fix_blocks as fix_blocks_async
 from .observations import coverage_map_tests, run_observations
@@ -137,12 +137,17 @@ def cli():
     help="Path to issue description file to check changes against",
 )
 @click.option(
+    "--github-issue",
+    default=None,
+    help="GitHub issue to check changes against (URL, owner/repo#N, or number)",
+)
+@click.option(
     "--comment",
     is_flag=True,
     default=False,
     help="Post review as a comment on the PR (requires --pr)",
 )
-def review(branch, base, pr, repo, spec, model, output, output_dir, lint, fix_lint, observations, beliefs, issue, comment):
+def review(branch, base, pr, repo, spec, model, output, output_dir, lint, fix_lint, observations, beliefs, issue, github_issue, comment):
     """Run code review with multiple models."""
     import os
 
@@ -229,7 +234,13 @@ def review(branch, base, pr, repo, spec, model, output, output_dir, lint, fix_li
 
     # Load issue if provided
     issue_content = None
-    if issue:
+    if github_issue:
+        try:
+            issue_content = get_github_issue(github_issue)
+            click.echo(f"Fetched GitHub issue {github_issue}", err=True)
+        except (RuntimeError, ValueError) as e:
+            click.echo(f"Warning: Could not fetch GitHub issue: {e}", err=True)
+    elif issue:
         issue_content = read_file_content(issue)
         if issue_content:
             click.echo(f"Loaded issue from {issue}", err=True)
@@ -455,12 +466,17 @@ def observe(branch, base, repo, model, output, run):
     help="Path to issue description file to check changes against",
 )
 @click.option(
+    "--github-issue",
+    default=None,
+    help="GitHub issue to check changes against (URL, owner/repo#N, or number)",
+)
+@click.option(
     "--comment",
     is_flag=True,
     default=False,
     help="Post review as a comment on the PR (requires --pr)",
 )
-def gate(branch, base, pr, repo, spec, model, output_dir, lint, fix_lint, beliefs, issue, comment):
+def gate(branch, base, pr, repo, spec, model, output_dir, lint, fix_lint, beliefs, issue, github_issue, comment):
     """
     Run review and exit with code based on result.
 
@@ -544,7 +560,13 @@ def gate(branch, base, pr, repo, spec, model, output_dir, lint, fix_lint, belief
 
     # Load issue if provided
     issue_content = None
-    if issue:
+    if github_issue:
+        try:
+            issue_content = get_github_issue(github_issue)
+            click.echo(f"Fetched GitHub issue {github_issue}", err=True)
+        except (RuntimeError, ValueError) as e:
+            click.echo(f"Warning: Could not fetch GitHub issue: {e}", err=True)
+    elif issue:
         issue_content = read_file_content(issue)
         if issue_content:
             click.echo(f"Loaded issue from {issue}", err=True)
@@ -897,12 +919,17 @@ def models():
     help="Path to issue description file to check changes against",
 )
 @click.option(
+    "--github-issue",
+    default=None,
+    help="GitHub issue to check changes against (URL, owner/repo#N, or number)",
+)
+@click.option(
     "--comment",
     is_flag=True,
     default=False,
     help="Post review as a comment on the PR (requires --pr)",
 )
-def auto(branch, base, pr, repo, spec, model, output, output_dir, max_iterations, beliefs, issue, comment):
+def auto(branch, base, pr, repo, spec, model, output, output_dir, max_iterations, beliefs, issue, github_issue, comment):
     """
     Run automated observe/review loop.
 
@@ -974,7 +1001,13 @@ def auto(branch, base, pr, repo, spec, model, output, output_dir, max_iterations
 
     # Load issue if provided
     issue_content = None
-    if issue:
+    if github_issue:
+        try:
+            issue_content = get_github_issue(github_issue)
+            click.echo(f"Fetched GitHub issue {github_issue}", err=True)
+        except (RuntimeError, ValueError) as e:
+            click.echo(f"Warning: Could not fetch GitHub issue: {e}", err=True)
+    elif issue:
         issue_content = read_file_content(issue)
         if issue_content:
             click.echo(f"Loaded issue from {issue}", err=True)
