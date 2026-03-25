@@ -9,7 +9,7 @@ import json
 
 from . import Verdict
 from .aggregator import aggregate_reviews
-from .git_utils import extract_changed_files, get_diff, get_github_issue, get_pr_diff, post_pr_comment, pr_output_dir_name, read_file_content
+from .git_utils import extract_changed_files, fetch_pr_locally, get_diff, get_github_issue, get_pr_diff, post_pr_comment, pr_output_dir_name, read_file_content
 from .lint import get_changed_python_files, run_lint_checks, run_lint_fixes
 from .fixer import fix_blocks as fix_blocks_async
 from .observations import coverage_map_tests, run_observations
@@ -193,7 +193,12 @@ def review(branch, base, pr, repo, spec, model, output, output_dir, lint, fix_li
 
     # Get diff
     try:
-        if pr:
+        if pr and repo != ".":
+            # Local repo available — fetch PR branch for full context + observations
+            click.echo(f"Fetching PR branch into {repo}...", err=True)
+            head_branch, base_branch, diff_ref = fetch_pr_locally(pr, repo)
+            diff_content = get_diff(head_branch, base_branch, cwd=repo)
+        elif pr:
             diff_content, diff_ref, _ = get_pr_diff(pr)
         elif branch:
             diff_ref = branch
@@ -528,7 +533,11 @@ def gate(branch, base, pr, repo, spec, model, output_dir, lint, fix_lint, belief
 
     # Get diff
     try:
-        if pr:
+        if pr and repo != ".":
+            click.echo(f"Fetching PR branch into {repo}...", err=True)
+            head_branch, base_branch, diff_ref = fetch_pr_locally(pr, repo)
+            diff_content = get_diff(head_branch, base_branch, cwd=repo)
+        elif pr:
             diff_content, diff_ref, _ = get_pr_diff(pr)
         elif branch:
             diff_ref = branch
@@ -664,7 +673,11 @@ def compare(branch, base, pr, repo, model):
 
     # Get diff
     try:
-        if pr:
+        if pr and repo != ".":
+            click.echo(f"Fetching PR branch into {repo}...", err=True)
+            head_branch, base_branch, diff_ref = fetch_pr_locally(pr, repo)
+            diff_content = get_diff(head_branch, base_branch, cwd=repo)
+        elif pr:
             diff_content, diff_ref, _ = get_pr_diff(pr)
         elif branch:
             diff_ref = branch
@@ -967,7 +980,11 @@ def auto(branch, base, pr, repo, spec, model, output, output_dir, max_iterations
 
     # Get diff
     try:
-        if pr:
+        if pr and repo != ".":
+            click.echo(f"Fetching PR branch into {repo}...", err=True)
+            head_branch, base_branch, diff_ref = fetch_pr_locally(pr, repo)
+            diff_content = get_diff(head_branch, base_branch, cwd=repo)
+        elif pr:
             diff_content, diff_ref, _ = get_pr_diff(pr)
         elif branch:
             diff_ref = branch

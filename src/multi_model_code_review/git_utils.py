@@ -140,6 +140,76 @@ def get_pr_diff(pr_ref: str) -> tuple[str, str, str]:
     return result.stdout, diff_ref, repo or ""
 
 
+def fetch_pr_locally(pr_ref: str, cwd: str) -> tuple[str, str, str]:
+    """
+    Fetch a PR's branch into a local repo and check it out.
+
+    Args:
+        pr_ref: PR URL, owner/repo#N, or number
+        cwd: Local repo directory
+
+    Returns:
+        (head_branch, base_branch, diff_ref) — ready for get_diff()
+
+    Raises:
+        RuntimeError: If gh or git commands fail
+    """
+    import json
+
+    repo, pr_number = parse_pr_url(pr_ref)
+
+    # Get PR metadata
+    cmd = ["gh", "pr", "view", str(pr_number), "--json", "headRefName,baseRefName,url"]
+    if repo:
+        cmd.extend(["--repo", repo])
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"gh pr view failed: {result.stderr.strip()}")
+
+    data = json.loads(result.stdout)
+    head_branch = data["headRefName"]
+    base_branch = data["baseRefName"]
+
+    # Build diff_ref label
+    if repo:
+        diff_ref = f"{repo}#{pr_number}"
+    else:
+        url = data.get("url", "")
+        m = re.match(r"https?://github\.com/([^/]+/[^/]+)/pull/\d+", url)
+        diff_ref = f"{m.group(1)}#{pr_number}" if m else f"PR #{pr_number}"
+
+    # Fetch and checkout the PR branch
+    subprocess.run(
+        ["git", "fetch", "origin", head_branch],
+        cwd=cwd, capture_output=True, text=True,
+    )
+
+    # Check if branch exists locally
+    check = subprocess.run(
+        ["git", "rev-parse", "--verify", head_branch],
+        cwd=cwd, capture_output=True,
+    )
+    if check.returncode == 0:
+        # Branch exists, update it
+        subprocess.run(
+            ["git", "checkout", head_branch],
+            cwd=cwd, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "pull", "--ff-only", "origin", head_branch],
+            cwd=cwd, capture_output=True,
+        )
+    else:
+        # Create tracking branch
+        subprocess.run(
+            ["git", "checkout", "-b", head_branch, f"origin/{head_branch}"],
+            cwd=cwd, capture_output=True,
+        )
+
+    return head_branch, base_branch, diff_ref
+
+
 def pr_output_dir_name(pr_ref: str) -> str:
     """
     Generate a clean output directory name from a PR reference.
