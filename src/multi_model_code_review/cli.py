@@ -9,7 +9,7 @@ import json
 
 from . import Verdict
 from .aggregator import aggregate_reviews
-from .git_utils import extract_changed_files, get_diff, read_file_content
+from .git_utils import extract_changed_files, get_diff, get_pr_diff, post_pr_comment, pr_output_dir_name, read_file_content
 from .lint import get_changed_python_files, run_lint_checks, run_lint_fixes
 from .fixer import fix_blocks as fix_blocks_async
 from .observations import coverage_map_tests, run_observations
@@ -68,6 +68,11 @@ def cli():
     "--base",
     default="main",
     help="Base branch to diff against (default: main)",
+)
+@click.option(
+    "--pr",
+    default=None,
+    help="GitHub PR to review (URL, owner/repo#N, or number)",
 )
 @click.option(
     "--repo",
@@ -131,20 +136,33 @@ def cli():
     default=None,
     help="Path to issue description file to check changes against",
 )
-def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint, observations, beliefs, issue):
+@click.option(
+    "--comment",
+    is_flag=True,
+    default=False,
+    help="Post review as a comment on the PR (requires --pr)",
+)
+def review(branch, base, pr, repo, spec, model, output, output_dir, lint, fix_lint, observations, beliefs, issue, comment):
     """Run code review with multiple models."""
     import os
+
+    if comment and not pr:
+        click.echo("Error: --comment requires --pr", err=True)
+        sys.exit(1)
 
     models = list(model) if model else DEFAULT_MODELS
 
     # Generate default output_dir if not specified
     if output_dir is None:
-        branch_id = (branch or "staged").replace("/", "-")
+        if pr:
+            branch_id = pr_output_dir_name(pr)
+        else:
+            branch_id = (branch or "staged").replace("/", "-")
         output_dir = os.path.join("reviews", branch_id)
         click.echo(f"Saving review to {output_dir}/", err=True)
 
-    # Lint fix/check (pre-model gate)
-    if fix_lint or lint:
+    # Lint fix/check (pre-model gate) — skip for PR reviews (remote repo)
+    if (fix_lint or lint) and not pr:
         py_files = get_changed_python_files(branch, base, cwd=repo)
         if py_files:
             if fix_lint:
@@ -170,13 +188,15 @@ def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint, 
 
     # Get diff
     try:
-        if branch:
+        if pr:
+            diff_content, diff_ref, _ = get_pr_diff(pr)
+        elif branch:
             diff_ref = branch
             diff_content = get_diff(branch, base, cwd=repo)
         else:
             diff_ref = "staged"
             diff_content = get_diff(cwd=repo)
-    except RuntimeError as e:
+    except (RuntimeError, ValueError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -248,6 +268,15 @@ def review(branch, base, repo, spec, model, output, output_dir, lint, fix_lint, 
 
     # Always output to stdout
     click.echo(report)
+
+    # Post as PR comment if requested
+    if comment:
+        try:
+            post_pr_comment(pr, report)
+            click.echo(f"Posted review as comment on {diff_ref}", err=True)
+        except RuntimeError as e:
+            click.echo(f"Error posting comment: {e}", err=True)
+            sys.exit(1)
 
 
 @cli.command()
@@ -372,6 +401,11 @@ def observe(branch, base, repo, model, output, run):
     help="Base branch to diff against (default: main)",
 )
 @click.option(
+    "--pr",
+    default=None,
+    help="GitHub PR to review (URL, owner/repo#N, or number)",
+)
+@click.option(
     "--repo",
     "-r",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
@@ -420,7 +454,13 @@ def observe(branch, base, repo, model, output, run):
     default=None,
     help="Path to issue description file to check changes against",
 )
-def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint, beliefs, issue):
+@click.option(
+    "--comment",
+    is_flag=True,
+    default=False,
+    help="Post review as a comment on the PR (requires --pr)",
+)
+def gate(branch, base, pr, repo, spec, model, output_dir, lint, fix_lint, beliefs, issue, comment):
     """
     Run review and exit with code based on result.
 
@@ -431,16 +471,23 @@ def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint, beliefs, i
     """
     import os
 
+    if comment and not pr:
+        click.echo("Error: --comment requires --pr", err=True)
+        sys.exit(1)
+
     models = list(model) if model else DEFAULT_MODELS
 
     # Generate default output_dir if not specified
     if output_dir is None:
-        branch_id = (branch or "staged").replace("/", "-")
+        if pr:
+            branch_id = pr_output_dir_name(pr)
+        else:
+            branch_id = (branch or "staged").replace("/", "-")
         output_dir = os.path.join("reviews", branch_id)
         click.echo(f"Saving review to {output_dir}/", err=True)
 
-    # Lint fix/check (pre-model gate)
-    if fix_lint or lint:
+    # Lint fix/check (pre-model gate) — skip for PR reviews
+    if (fix_lint or lint) and not pr:
         py_files = get_changed_python_files(branch, base, cwd=repo)
         if py_files:
             if fix_lint:
@@ -465,13 +512,15 @@ def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint, beliefs, i
 
     # Get diff
     try:
-        if branch:
+        if pr:
+            diff_content, diff_ref, _ = get_pr_diff(pr)
+        elif branch:
             diff_ref = branch
             diff_content = get_diff(branch, base, cwd=repo)
         else:
             diff_ref = "staged"
             diff_content = get_diff(cwd=repo)
-    except RuntimeError as e:
+    except (RuntimeError, ValueError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(2)
 
@@ -527,7 +576,16 @@ def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint, beliefs, i
         click.echo(f"Saved {model_review.model} raw response to {raw_path}", err=True)
 
     # Output summary
+    report = format_aggregate_review(result)
     click.echo(format_summary(result))
+
+    # Post as PR comment if requested
+    if comment:
+        try:
+            post_pr_comment(pr, report)
+            click.echo(f"Posted review as comment on {diff_ref}", err=True)
+        except RuntimeError as e:
+            click.echo(f"Error posting comment: {e}", err=True)
 
     # Exit with appropriate code
     if result.gate == Verdict.PASS:
@@ -551,6 +609,11 @@ def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint, beliefs, i
     help="Base branch to diff against (default: main)",
 )
 @click.option(
+    "--pr",
+    default=None,
+    help="GitHub PR to review (URL, owner/repo#N, or number)",
+)
+@click.option(
     "--repo",
     "-r",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
@@ -563,7 +626,7 @@ def gate(branch, base, repo, spec, model, output_dir, lint, fix_lint, beliefs, i
     multiple=True,
     help="Models to use (default: claude, gemini)",
 )
-def compare(branch, base, repo, model):
+def compare(branch, base, pr, repo, model):
     """Show only disagreements between models."""
     models = list(model) if model else DEFAULT_MODELS
 
@@ -579,13 +642,15 @@ def compare(branch, base, repo, model):
 
     # Get diff
     try:
-        if branch:
+        if pr:
+            diff_content, diff_ref, _ = get_pr_diff(pr)
+        elif branch:
             diff_ref = branch
             diff_content = get_diff(branch, base, cwd=repo)
         else:
             diff_ref = "staged"
             diff_content = get_diff(cwd=repo)
-    except RuntimeError as e:
+    except (RuntimeError, ValueError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -776,6 +841,11 @@ def models():
     help="Base branch to diff against (default: main)",
 )
 @click.option(
+    "--pr",
+    default=None,
+    help="GitHub PR to review (URL, owner/repo#N, or number)",
+)
+@click.option(
     "--repo",
     "-r",
     type=click.Path(exists=True, file_okay=False, dir_okay=True),
@@ -826,7 +896,13 @@ def models():
     default=None,
     help="Path to issue description file to check changes against",
 )
-def auto(branch, base, repo, spec, model, output, output_dir, max_iterations, beliefs, issue):
+@click.option(
+    "--comment",
+    is_flag=True,
+    default=False,
+    help="Post review as a comment on the PR (requires --pr)",
+)
+def auto(branch, base, pr, repo, spec, model, output, output_dir, max_iterations, beliefs, issue, comment):
     """
     Run automated observe/review loop.
 
@@ -840,13 +916,19 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations, be
 
     from .reviewer import parse_observations
 
+    if comment and not pr:
+        click.echo("Error: --comment requires --pr", err=True)
+        sys.exit(1)
+
     models = list(model) if model else DEFAULT_MODELS
 
     # Generate default output_dir if not specified
     if output_dir is None:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        # Use sanitized branch name as directory
-        branch_id = (branch or "staged").replace("/", "-")
+        if pr:
+            branch_id = pr_output_dir_name(pr)
+        else:
+            branch_id = (branch or "staged").replace("/", "-")
         output_dir = os.path.join("reviews", branch_id, timestamp)
         click.echo(f"Saving review to {output_dir}/", err=True)
 
@@ -858,13 +940,15 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations, be
 
     # Get diff
     try:
-        if branch:
+        if pr:
+            diff_content, diff_ref, _ = get_pr_diff(pr)
+        elif branch:
             diff_ref = branch
             diff_content = get_diff(branch, base, cwd=repo)
         else:
             diff_ref = "staged"
             diff_content = get_diff(cwd=repo)
-    except RuntimeError as e:
+    except (RuntimeError, ValueError) as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
 
@@ -1016,6 +1100,14 @@ def auto(branch, base, repo, spec, model, output, output_dir, max_iterations, be
         click.echo(f"Saved observations to {obs_path}", err=True)
 
     click.echo(report)
+
+    # Post as PR comment if requested
+    if comment:
+        try:
+            post_pr_comment(pr, report)
+            click.echo(f"Posted review as comment on {diff_ref}", err=True)
+        except RuntimeError as e:
+            click.echo(f"Error posting comment: {e}", err=True)
 
 
 @cli.command()

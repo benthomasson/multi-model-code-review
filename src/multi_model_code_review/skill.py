@@ -26,6 +26,13 @@ Try these in order until one works:
 
 ## Common Commands
 
+### Review a GitHub PR (no local checkout needed)
+```bash
+code-review review --pr https://github.com/owner/repo/pull/123
+code-review review --pr owner/repo#123
+code-review review --pr 123  # uses current repo
+```
+
 ### Review a branch
 ```bash
 code-review review -b feature-branch --base main
@@ -83,15 +90,17 @@ code-review models
 Run full code review with multiple models.
 
 Options:
+- `--pr` - GitHub PR to review (URL, owner/repo#N, or number) — no local checkout needed
 - `-b, --branch` - Branch to review (default: staged changes)
 - `--base` - Base branch to diff against (default: main)
 - `-r, --repo` - Repository directory (default: current directory)
 - `-m, --model` - Models to use (repeatable, default: claude, gemini)
 - `-s, --spec` - Path to spec file for compliance checking
 - `-o, --output` - Output format: full or summary
-- `-d, --output-dir` - Save reports and raw responses to directory
+- `-d, --output-dir` - Save reports and raw responses to directory (default: `reviews/<branch>/`)
 - `--lint/--no-lint` - Run lint checks before model review
 - `--fix-lint` - Auto-fix lint issues before review
+- `--beliefs` - Path to beliefs.md for belief-aware review (from code-expert)
 
 ### `lint`
 Run lint checks (black, isort, ruff) on changed files.
