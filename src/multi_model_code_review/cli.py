@@ -12,7 +12,7 @@ from .aggregator import aggregate_reviews
 from .git_utils import extract_changed_files, fetch_pr_locally, get_diff, get_github_issue, get_pr_diff, post_pr_comment, pr_output_dir_name, read_file_content
 from .lint import get_changed_python_files, run_lint_checks, run_lint_fixes
 from .fixer import fix_blocks as fix_blocks_async
-from .observations import coverage_map_tests, gather_function_context, run_observations
+from .observations import coverage_map_tests, gather_function_context, gather_related_test_files, run_observations
 from .prompts import build_observe_prompt, build_review_prompt, build_spec_check_prompt
 from .report import format_aggregate_review, format_summary
 from .reviewer import (
@@ -1065,6 +1065,40 @@ def review_loop(branch, base, pr, repo, spec, model, output, output_dir, max_ite
             with open(os.path.join(output_dir, "00-auto-functions.json"), "w") as f:
                 json.dump(fn_context, f, indent=2, default=str)
 
+    # Auto-discover related test files for modified code
+    if repo != ".":
+        click.echo("Auto-discovering related test files...", err=True)
+        test_context = asyncio.run(gather_related_test_files(diff_content, repo))
+        test_files = test_context.get("test_files", [])
+        if test_files:
+            # Add each test file's content as an observation
+            for tf in test_files:
+                obs_key = f"related_test:{tf['path']}"
+                all_observations[obs_key] = {
+                    "path": tf["path"],
+                    "covers": tf["covers"],
+                    "symbols_referenced": tf["symbols_referenced"],
+                    "content": tf["content"],
+                    "truncated": tf.get("truncated", False),
+                    "line_count": tf["line_count"],
+                }
+            click.echo(f"Auto-discovered {len(test_files)} related test file(s):", err=True)
+            for tf in test_files:
+                symbols = ", ".join(tf["symbols_referenced"][:5]) if tf["symbols_referenced"] else "no direct symbol refs"
+                click.echo(f"  {tf['path']} ({symbols})", err=True)
+
+            # Flag duplicate coverage
+            dupes = test_context.get("duplicate_coverage", {})
+            if dupes:
+                click.echo(f"Duplicate test coverage detected:", err=True)
+                for src, tests in dupes.items():
+                    click.echo(f"  {src} covered by: {', '.join(tests)}", err=True)
+
+            with open(os.path.join(output_dir, "00-auto-tests.json"), "w") as f:
+                json.dump(test_context, f, indent=2, default=str)
+        else:
+            click.echo("No related test files found.", err=True)
+
     for iteration in range(1, max_iterations + 1):
         click.echo(f"\n=== Iteration {iteration}/{max_iterations} ===", err=True)
         iter_prefix = f"{iteration:02d}"
@@ -1354,6 +1388,26 @@ def files(paths, repo, spec, model, output_dir, glob, fix_blocks, beliefs, issue
         if all_observations:
             with open(os.path.join(output_dir, "00-auto-coverage.json"), "w") as f:
                 json.dump(all_observations, f, indent=2, default=str)
+
+    # Auto-discover related test files
+    if diff_content and str(repo_path) != ".":
+        click.echo("Auto-discovering related test files...", err=True)
+        test_context = asyncio.run(gather_related_test_files(diff_content, str(repo_path)))
+        test_files = test_context.get("test_files", [])
+        if test_files:
+            for tf in test_files:
+                obs_key = f"related_test:{tf['path']}"
+                all_observations[obs_key] = {
+                    "path": tf["path"],
+                    "covers": tf["covers"],
+                    "symbols_referenced": tf["symbols_referenced"],
+                    "content": tf["content"],
+                    "truncated": tf.get("truncated", False),
+                    "line_count": tf["line_count"],
+                }
+            click.echo(f"Auto-discovered {len(test_files)} related test file(s)", err=True)
+            with open(os.path.join(output_dir, "00-auto-tests.json"), "w") as f:
+                json.dump(test_context, f, indent=2, default=str)
 
     # Single iteration for files review (no observe loop needed - we have full context)
     click.echo(f"\nRunning review with {', '.join(models)}...", err=True)
