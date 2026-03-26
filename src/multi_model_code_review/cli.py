@@ -1188,7 +1188,6 @@ def review_loop(branch, base, pr, repo, spec, model, output, output_dir, max_ite
                 "warnings": disc_result.warnings,
                 "passed": False,
             }
-
     for iteration in range(1, max_iterations + 1):
         click.echo(f"\n=== Iteration {iteration}/{max_iterations} ===", err=True)
         iter_prefix = f"{iteration:02d}"
