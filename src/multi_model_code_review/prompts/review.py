@@ -85,7 +85,6 @@ REASONING: <brief explanation of your assessment>
 After completing your review, add a brief self-assessment:
 
 ### SELF_REVIEW
-CONFIDENCE: HIGH | MEDIUM | LOW
 LIMITATIONS: <what context were you missing that affected review quality?>
 ---
 

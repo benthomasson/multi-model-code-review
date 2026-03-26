@@ -134,7 +134,6 @@ Overall verdict:
 ## Self-Review and Feature Requests
 
 Models provide self-assessment after each review:
-- **Confidence**: HIGH / MEDIUM / LOW
 - **Limitations**: What context was missing
 - **Feature Requests**: Suggestions for improving the tool
 

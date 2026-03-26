@@ -47,19 +47,10 @@ class Integration(Enum):
     MISSING = "MISSING"
 
 
-class Confidence(Enum):
-    """Self-assessment confidence level."""
-
-    HIGH = "HIGH"
-    MEDIUM = "MEDIUM"
-    LOW = "LOW"
-
-
 @dataclass
 class SelfReview:
     """Model's self-assessment of its review quality."""
 
-    confidence: Confidence
     limitations: str = ""
 
 
@@ -107,7 +98,6 @@ __all__ = [
     "SpecCompliance",
     "TestCoverage",
     "Integration",
-    "Confidence",
     "SelfReview",
     "ChangeVerdict",
     "ModelReview",

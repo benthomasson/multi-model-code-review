@@ -8,7 +8,6 @@ import shutil
 
 from . import (
     ChangeVerdict,
-    Confidence,
     Correctness,
     Integration,
     ModelReview,
@@ -176,7 +175,7 @@ CHANGE_PATTERN = re.compile(
 # Pattern to match self-review section
 SELF_REVIEW_PATTERN = re.compile(
     r"###\s*SELF_REVIEW\s*\n"
-    r"CONFIDENCE:\s*(HIGH|MEDIUM|LOW)\s*\n"
+    r"(?:CONFIDENCE:\s*(?:HIGH|MEDIUM|LOW)\s*\n)?"
     r"LIMITATIONS:\s*(.*?)(?=\n---|\n###|\n##|$)",
     re.DOTALL | re.IGNORECASE,
 )
@@ -194,27 +193,15 @@ OBSERVATIONS_PATTERN = re.compile(
 )
 
 
-def parse_confidence(text: str) -> Confidence:
-    """Parse confidence string to enum."""
-    text = text.strip().upper()
-    if text == "HIGH":
-        return Confidence.HIGH
-    elif text == "LOW":
-        return Confidence.LOW
-    else:
-        return Confidence.MEDIUM
-
-
 def parse_self_review(response: str) -> SelfReview | None:
     """Parse self-review section from response."""
     match = SELF_REVIEW_PATTERN.search(response)
     if not match:
         return None
 
-    confidence = parse_confidence(match.group(1))
-    limitations = match.group(2).strip() if match.group(2) else ""
+    limitations = match.group(1).strip() if match.group(1) else ""
 
-    return SelfReview(confidence=confidence, limitations=limitations)
+    return SelfReview(limitations=limitations)
 
 
 def parse_feature_requests(response: str) -> list[str]:

@@ -41,7 +41,6 @@ def format_model_review(review: ModelReview) -> str:
     # Add self-review section if present
     if review.self_review:
         lines.append("### Self-Review")
-        lines.append(f"**Confidence:** {review.self_review.confidence.value}")
         if review.self_review.limitations:
             lines.append(f"**Limitations:** {review.self_review.limitations}")
         lines.append("")
